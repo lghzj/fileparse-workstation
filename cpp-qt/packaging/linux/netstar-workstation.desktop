@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=NetStar Workstation
+Comment=NetStar file collection workstation client
+Exec=netstar-workstation
+Icon=netstar-workstation
+Terminal=false
+Categories=Utility;

@@ -1,0 +1,8 @@
+{
+  "apiBaseUrl": "http://127.0.0.1:8080",
+  "wsUrl": "ws://127.0.0.1:8080/file",
+  "heartbeatIntervalSeconds": 30,
+  "mac": "replace-with-workstation-mac",
+  "ip": "127.0.0.1",
+  "hostname": "IFSP-WORKSTATION"
+}

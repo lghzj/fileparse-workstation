@@ -1,0 +1,15 @@
+stages:
+  - test
+
+python-tests:
+  stage: test
+  image: python:3.11
+  before_script:
+    - pip install uv
+    - uv sync --extra dev
+  script:
+    - uv run pytest
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'

@@ -1,0 +1,4 @@
+PySide2==5.15.2.1
+PyInstaller==5.13.2
+watchdog==2.1.9
+websockets==11.0.3

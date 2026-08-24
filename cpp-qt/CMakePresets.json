@@ -1,0 +1,22 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "macos-homebrew",
+      "displayName": "macOS Homebrew Qt",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "/opt/homebrew/opt/qtbase;/opt/homebrew/opt/qttools;/opt/homebrew/opt/qtsvg",
+        "Qt6WebSockets_DIR": "/opt/homebrew/opt/qtwebsockets/lib/cmake/Qt6WebSockets",
+        "Qt6Svg_DIR": "/opt/homebrew/opt/qtsvg/lib/cmake/Qt6Svg"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "macos-homebrew",
+      "configurePreset": "macos-homebrew"
+    }
+  ]
+}

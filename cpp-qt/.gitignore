@@ -1,0 +1,6 @@
+build/
+build-*/
+*.user
+*.autosave
+*.deb
+_CPack_Packages/
