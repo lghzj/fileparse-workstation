@@ -8,9 +8,9 @@ default:
 
 python-tests:
   stage: test
-  image: python:3.11
   before_script:
-    - pip install uv
+    - python3 --version
+    - uv --version
     - uv sync --extra dev
   script:
     - uv run pytest
