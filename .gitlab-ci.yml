@@ -1,6 +1,11 @@
 stages:
   - test
 
+default:
+  interruptible: true
+  tags:
+    - "082"
+
 python-tests:
   stage: test
   image: python:3.11
