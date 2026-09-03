@@ -31,6 +31,19 @@ jobs:
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v5
 
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Show toolchain
+        shell: pwsh
+        run: |
+          where.exe cl
+          where.exe cmake
+          where.exe ninja
+          where.exe windeployqt
+
       - name: Build package
         shell: pwsh
         run: .\cpp-qt\packaging\windows\build-zip.ps1
