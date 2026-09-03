@@ -50,10 +50,15 @@ set(NETSTAR_WORKSTATION_SOURCES
     src/ui/MainWindow.h
 )
 
+set(NETSTAR_WORKSTATION_APP_OPTIONS)
+if(WIN32)
+    list(APPEND NETSTAR_WORKSTATION_APP_OPTIONS WIN32)
+endif()
+
 if(QT_VERSION_MAJOR EQUAL 6)
-    qt_add_executable(netstar-workstation ${NETSTAR_WORKSTATION_SOURCES})
+    qt_add_executable(netstar-workstation ${NETSTAR_WORKSTATION_APP_OPTIONS} ${NETSTAR_WORKSTATION_SOURCES})
 else()
-    add_executable(netstar-workstation ${NETSTAR_WORKSTATION_SOURCES})
+    add_executable(netstar-workstation ${NETSTAR_WORKSTATION_APP_OPTIONS} ${NETSTAR_WORKSTATION_SOURCES})
 endif()
 
 target_link_libraries(netstar-workstation
