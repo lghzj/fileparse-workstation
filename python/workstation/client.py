@@ -90,6 +90,7 @@ class ApiClient:
                 "mac": self.workstation_mac,
                 "ip": ip,
                 "hostname": hostname,
+                "workstationToken": self.workstation_token,
                 "clientVersion": "workstation-cli",
             },
         )

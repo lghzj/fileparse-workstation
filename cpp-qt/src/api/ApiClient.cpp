@@ -24,6 +24,9 @@ void ApiClient::registerWorkstation() {
         body["ip"] = settings_.ip.trimmed();
     }
     body["hostname"] = settings_.hostname;
+    if (!settings_.token.trimmed().isEmpty()) {
+        body["workstationToken"] = settings_.token.trimmed();
+    }
     body["clientVersion"] = QString(APP_VERSION);
 
     auto *reply = manager_.post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
