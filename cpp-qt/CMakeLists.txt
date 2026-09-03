@@ -8,8 +8,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Network Sql WebSockets Svg)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network Sql WebSockets Svg)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Network Sql WebSockets)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network Sql WebSockets)
 
 if(APPLE)
     configure_file(
@@ -62,7 +62,6 @@ target_link_libraries(netstar-workstation
         Qt${QT_VERSION_MAJOR}::Network
         Qt${QT_VERSION_MAJOR}::Sql
         Qt${QT_VERSION_MAJOR}::WebSockets
-        Qt${QT_VERSION_MAJOR}::Svg
 )
 
 target_include_directories(netstar-workstation PRIVATE src)
@@ -105,9 +104,9 @@ if(UNIX AND NOT APPLE)
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "NetStar")
     set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
     if(QT_VERSION_MAJOR EQUAL 6)
-        set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6widgets6, libqt6network6, libqt6sql6, libqt6sql6-sqlite, libqt6websockets6, libqt6svg6")
+        set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6widgets6, libqt6network6, libqt6sql6, libqt6sql6-sqlite, libqt6websockets6")
     else()
-        set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt5widgets5, libqt5network5, libqt5sql5, libqt5sql5-sqlite, libqt5websockets5, libqt5svg5")
+        set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt5widgets5, libqt5network5, libqt5sql5, libqt5sql5-sqlite, libqt5websockets5")
     endif()
 elseif(WIN32)
     set(CPACK_GENERATOR "ZIP")
