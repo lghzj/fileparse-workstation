@@ -7,7 +7,7 @@ import sqlite3
 
 from workstation.client import ApiClient, multipart_body, sha256_file
 from workstation.build_info import runtime_summary
-from workstation.cli import apply_remote_config, configure_logging, query_status, upload
+from workstation.cli import apply_remote_config, configure_logging, query_status, run, upload
 from workstation.config import ConfigError, WorkstationConfig, ensure_config, load_config, save_config, update_base_config
 from workstation.runtime import FailedUploadRetrier
 from workstation.scanner import DirectoryScanner
@@ -237,6 +237,62 @@ def test_apply_remote_config_updates_shared_runtime_config(tmp_path: Path) -> No
     assert config.config_version == 2
     assert config.items[0]["fileType"] == "excel"
     assert load_config(config_path).items == config.items
+
+
+def test_run_registers_before_pull_even_with_existing_token(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "server.json"
+    state_db = tmp_path / "state.db"
+    save_config(
+        config_path,
+        WorkstationConfig(
+            api_base_url="http://127.0.0.1:8080",
+            mac="00:11:22:33:44:55",
+            workstation_token="old-token",
+        ),
+    )
+    calls: list[str] = []
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.workstation_token = "old-token"
+
+        def register(self, *, ip=None, hostname=None):
+            calls.append("register")
+            self.workstation_token = "new-token"
+            return {
+                "workstationId": 42,
+                "heartbeatIntervalSeconds": 30,
+                "configVersion": 3,
+                "wsUrl": "/file",
+                "workstationToken": "new-token",
+            }
+
+        def pull_config(self):
+            calls.append("pull_config")
+            return {"configVersion": 4, "items": []}
+
+    fake_client = FakeClient()
+
+    class FakeRunner:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        async def run(self) -> None:
+            return None
+
+    monkeypatch.setattr("workstation.cli.build_client", lambda _config: fake_client)
+    monkeypatch.setattr("workstation.cli.WebSocketClient", FakeRunner)
+    monkeypatch.setattr("workstation.cli.DirectoryScanner", FakeRunner)
+    monkeypatch.setattr("workstation.cli.FailedUploadRetrier", FakeRunner)
+    monkeypatch.setattr("workstation.cli.sync_config_loop", lambda *_args, **_kwargs: FakeRunner().run())
+
+    asyncio.run(run(config_path, state_db))
+
+    loaded = load_config(config_path)
+    assert calls == ["register", "pull_config"]
+    assert loaded.workstation_token == "new-token"
+    assert loaded.workstation_id == 42
+    assert loaded.config_version == 4
 
 
 def test_configure_logging_writes_to_file(tmp_path: Path) -> None:

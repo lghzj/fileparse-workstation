@@ -12,6 +12,7 @@ windows_icon = project_root / "logo" / "workstation-icon-win.ico"
 hiddenimports = collect_submodules("websockets") + [
     "PySide2.QtCore",
     "PySide2.QtGui",
+    "PySide2.QtNetwork",
     "PySide2.QtWidgets",
 ]
 

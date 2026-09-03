@@ -59,11 +59,21 @@ cmake -S . -B build
 cmake --build build
 ```
 
+macOS Homebrew Qt 环境可直接使用预置配置：
+
+```bash
+cd cpp-qt
+cmake --preset macos-homebrew
+cmake --build --preset macos-homebrew
+```
+
 平台打包脚本位于：
 
 - `cpp-qt/packaging/windows/build-zip.ps1`
 - `cpp-qt/packaging/linux/build-deb.sh`
 - `cpp-qt/packaging/macos/package.sh`
+
+C++/Qt 版本当前覆盖注册、配置同步、WebSocket、目录监听、上传、本地 SQLite 状态、失败重试、托盘驻留和诊断导出。
 
 ## 仓库边界
 

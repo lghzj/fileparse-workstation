@@ -5,6 +5,7 @@ def load_qt() -> dict:
     try:
         from PySide6.QtCore import QCoreApplication, QFileSystemWatcher, QProcess, Qt, QTimer, QUrl
         from PySide6.QtGui import QAction, QColor, QDesktopServices, QIcon, QKeySequence
+        from PySide6.QtNetwork import QLocalServer, QLocalSocket
         from PySide6.QtWidgets import (
             QApplication,
             QComboBox,
@@ -62,6 +63,7 @@ def load_qt() -> dict:
         try:
             from PySide2.QtCore import QCoreApplication, QFileSystemWatcher, QProcess, Qt, QTimer, QUrl
             from PySide2.QtGui import QColor, QDesktopServices, QIcon, QKeySequence
+            from PySide2.QtNetwork import QLocalServer, QLocalSocket
             from PySide2.QtWidgets import (
                 QAction,
                 QAbstractItemView,
@@ -139,6 +141,8 @@ def load_qt() -> dict:
         "QKeySequence": QKeySequence,
         "QLabel": QLabel,
         "QLineEdit": QLineEdit,
+        "QLocalServer": QLocalServer,
+        "QLocalSocket": QLocalSocket,
         "QMainWindow": QMainWindow,
         "QMenu": QMenu,
         "QMessageBox": QMessageBox,

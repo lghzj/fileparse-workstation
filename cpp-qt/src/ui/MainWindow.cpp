@@ -137,6 +137,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), uploadManager_(&a
             receivedToken = !tokenEdit_->text().trimmed().isEmpty();
         }
         appendLog("register ok: " + QString::fromUtf8(QJsonDocument(sanitizedPayload(payload)).toJson(QJsonDocument::Compact)));
+        if (startPendingAfterRegister_) {
+            startPendingAfterRegister_ = false;
+            if (currentSettings().token.trimmed().isEmpty()) {
+                startWatchButton_->setEnabled(true);
+                QMessageBox::warning(
+                    this,
+                    "需要重置 Token",
+                    "平台已有该 MAC 的工作站记录，但本地没有可用 Token。请在平台重置该工作站 Token 后重新注册。"
+                );
+                return;
+            }
+            appendLog("pulling config before start...");
+            startPendingAfterConfig_ = true;
+            pullConfigButton_->setEnabled(false);
+            apiClient_.pullConfig();
+            return;
+        }
         if (receivedToken) {
             QMessageBox::information(this, "注册成功", "工作站已注册，Token 已保存。请点击“重新载入”同步监听配置。");
         } else if (hadToken) {
@@ -154,6 +171,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), uploadManager_(&a
         pullConfigButton_->setEnabled(true);
         applyConfigPayload(payload);
         appendLog("config pulled");
+        if (startPendingAfterConfig_) {
+            startPendingAfterConfig_ = false;
+            startWatchButton_->setEnabled(true);
+            webSocketClient_.start();
+            watchManager_.setRuntimeConfig(runtimeConfig_);
+            watchManager_.start();
+            workstationRunning_ = true;
+            appendLog("工作站已启动");
+            updateStatusCards();
+            return;
+        }
         QMessageBox::information(this, "配置已更新", QString("平台配置已同步，当前监听目录数：%1。").arg(runtimeConfig_.devices.size()));
     });
 
@@ -161,10 +189,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), uploadManager_(&a
         if (operation == "register") {
             registerButton_->setEnabled(true);
             saveButton_->setEnabled(true);
+            startPendingAfterRegister_ = false;
         }
         if (operation == "pullConfig") {
             pullConfigButton_->setEnabled(true);
+            startPendingAfterConfig_ = false;
         }
+        startWatchButton_->setEnabled(true);
         appendLog(operation + " failed: " + message);
         const QString title = operation == "register" ? "注册失败" : (operation == "pullConfig" ? "配置同步失败" : "请求失败");
         QMessageBox::warning(this, title, message);
@@ -893,21 +924,18 @@ void MainWindow::toggleWorkstation() {
         stopWorkstation();
         return;
     }
-    if (currentSettings().token.trimmed().isEmpty()) {
-        setCurrentPage(1);
-        QMessageBox::information(this, "需要注册", "请先点击“注册”获取工作站 Token，再启动工作站。");
-        return;
-    }
-    if (!validateSettings(true)) {
+    if (!validateSettings(false)) {
         return;
     }
     configStore_.save(currentSettings());
     applySettingsToClients();
-    webSocketClient_.start();
-    watchManager_.setRuntimeConfig(runtimeConfig_);
-    watchManager_.start();
-    workstationRunning_ = true;
-    appendLog("工作站已启动");
+    startPendingAfterRegister_ = true;
+    startPendingAfterConfig_ = false;
+    startWatchButton_->setEnabled(false);
+    registerButton_->setEnabled(false);
+    saveButton_->setEnabled(false);
+    appendLog("registering workstation before start...");
+    apiClient_.registerWorkstation();
     updateStatusCards();
 }
 

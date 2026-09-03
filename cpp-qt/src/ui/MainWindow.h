@@ -78,6 +78,8 @@ private:
     RuntimeConfig runtimeConfig_;
     bool allowQuit_ = false;
     bool workstationRunning_ = false;
+    bool startPendingAfterRegister_ = false;
+    bool startPendingAfterConfig_ = false;
 
     QLineEdit *baseUrlEdit_ = nullptr;
     QLineEdit *ipEdit_ = nullptr;

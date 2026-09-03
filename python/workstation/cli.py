@@ -152,14 +152,13 @@ async def run(config_path: Path, state_db: Path) -> None:
         logger.warning("recovered interrupted uploads count=%s", recovered_count)
 
     client = build_client(config)
-    if not config.workstation_token:
-        data = client.register(ip=config.ip, hostname=config.hostname)
-        config.workstation_token = client.workstation_token
-        config.workstation_id = data["workstationId"]
-        config.heartbeat_interval_seconds = data["heartbeatIntervalSeconds"]
-        config.config_version = data["configVersion"]
-        if data.get("wsUrl"):
-            config.ws_url = data["wsUrl"]
+    data = client.register(ip=config.ip, hostname=config.hostname)
+    config.workstation_token = client.workstation_token
+    config.workstation_id = data["workstationId"]
+    config.heartbeat_interval_seconds = data["heartbeatIntervalSeconds"]
+    config.config_version = data["configVersion"]
+    if data.get("wsUrl"):
+        config.ws_url = data["wsUrl"]
 
     config.validate(require_token=True)
 

@@ -16,6 +16,7 @@ from workstation.windows_integration import doctor
 from workstation.qt_compat import exec_application, load_qt
 
 logger = logging.getLogger(__name__)
+SINGLE_INSTANCE_SERVER_NAME = "netstar-parse-hub-workstation"
 INTERNAL_TOOLS_PASSWORD = "199922"
 
 
@@ -44,10 +45,30 @@ def run_gui(config_path: Path, state_db: Path, log_file: Path) -> int:
     ensure_config(config_path)
     qt = _load_qt()
     app = qt["QApplication"](sys.argv)
+    socket = qt["QLocalSocket"]()
+    socket.connectToServer(SINGLE_INSTANCE_SERVER_NAME)
+    if socket.waitForConnected(200):
+        socket.write(b"activate")
+        socket.flush()
+        socket.waitForBytesWritten(200)
+        return 0
+
+    qt["QLocalServer"].removeServer(SINGLE_INSTANCE_SERVER_NAME)
+    single_instance_server = qt["QLocalServer"]()
+    single_instance_server.listen(SINGLE_INSTANCE_SERVER_NAME)
     icon_path = _app_icon_path()
     if icon_path is not None:
         app.setWindowIcon(qt["QIcon"](str(icon_path)))
     window = WorkstationMainWindow(qt, config_path, state_db, log_file)
+    window.single_instance_server = single_instance_server
+
+    def activate_existing_window() -> None:
+        while single_instance_server.hasPendingConnections():
+            client = single_instance_server.nextPendingConnection()
+            client.deleteLater()
+        window.show()
+
+    single_instance_server.newConnection.connect(activate_existing_window)
     window.show()
     return exec_application(app)
 
@@ -1629,9 +1650,7 @@ class WorkstationMainWindow:
 
     def start_workstation(self) -> None:
         self._save_settings()
-        config = load_config(self.config_path)
-        if not config.workstation_token:
-            register(self.config_path)
+        register(self.config_path)
         pull_config(self.config_path)
         self.start_runtime(show_message=False)
 
