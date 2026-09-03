@@ -1,0 +1,43 @@
+name: Build Windows Qt Workstation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "cpp-qt/**"
+      - ".github/workflows/windows-qt-build.yml"
+
+jobs:
+  build:
+    name: Windows Qt x64
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.0"
+          host: "windows"
+          target: "desktop"
+          arch: "win64_msvc2022_64"
+          modules: "qtwebsockets qtsvg"
+          cache: true
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Build package
+        shell: pwsh
+        run: .\cpp-qt\packaging\windows\build-zip.ps1
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetStarWorkstation-windows-x64
+          path: cpp-qt/dist/windows/NetStarWorkstation-windows-x64.zip
+          if-no-files-found: error
