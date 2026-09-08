@@ -22,6 +22,8 @@ endif()
 set(NETSTAR_WORKSTATION_SOURCES
     resources.qrc
     src/main.cpp
+    src/access/AccessDeltaCapture.cpp
+    src/access/AccessDeltaCapture.h
     src/app/RuntimeConfig.cpp
     src/app/RuntimeConfig.h
     src/app/UploadManager.cpp

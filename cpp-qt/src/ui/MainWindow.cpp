@@ -33,7 +33,8 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), uploadManager_(&apiClient_, &database_, this) {
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent), uploadManager_(&apiClient_, &database_, this), accessDeltaCapture_(&database_, this) {
     buildUi();
     setupTray();
     loadSettings();
@@ -203,6 +204,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), uploadManager_(&a
 
     connect(&uploadManager_, &UploadManager::logMessage, this, &MainWindow::appendLog);
     connect(&uploadManager_, &UploadManager::recordsChanged, this, &MainWindow::refreshUploadTable);
+    connect(&accessDeltaCapture_, &AccessDeltaCapture::logMessage, this, &MainWindow::appendLog);
+    connect(&accessDeltaCapture_, &AccessDeltaCapture::uploadReady, this, [this](const UploadRequest &request) {
+        uploadRequest(request);
+    });
 
     connect(&webSocketClient_, &WebSocketClient::logMessage, this, &MainWindow::appendLog);
     connect(&webSocketClient_, &WebSocketClient::connectionStateChanged, this, [this](const QString &state) {
@@ -234,6 +239,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), uploadManager_(&a
     connect(&watchManager_, &WatchManager::fileReady, this, [this](const UploadRequest &request) {
         uploadRequest(request);
     });
+    connect(&watchManager_, &WatchManager::accessFileReady, &accessDeltaCapture_, &AccessDeltaCapture::captureFile);
     updateStatusCards();
     refreshDeviceTable();
 }

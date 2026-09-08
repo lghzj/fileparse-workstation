@@ -7,6 +7,14 @@
 #include <QJsonObject>
 #include <QString>
 
+struct AccessCursorState {
+    bool hasLastCursor = false;
+    QString lastCursorValue;
+    QString pendingCursorValue;
+    QString pendingDataNo;
+    QString status;
+};
+
 struct StoredUpload {
     UploadRequest request;
     QString dataNo;
@@ -23,6 +31,11 @@ public:
     bool markUploaded(const UploadRequest &request, const QString &dataNo, QString *errorMessage);
     bool markUploadFailed(const UploadRequest &request, const QString &message, QString *errorMessage);
     bool markTaskResult(const QJsonObject &payload, QString *errorMessage);
+    bool accessCursor(int deviceId, const QString &accessFilePath, const QString &tableName, const QString &monitorColumn, AccessCursorState *state, QString *errorMessage);
+    bool saveAccessSchemaCache(int deviceId, const QString &accessFilePath, const QString &tableName, const QString &schemaHash, const QString &columnsJson, QString *errorMessage);
+    bool setAccessCursor(int deviceId, const QString &accessFilePath, const QString &tableName, const QString &monitorColumn, const QString &cursorValue, QString *errorMessage);
+    bool markAccessBatchPending(const QString &deltaPath, int deviceId, const QString &accessFilePath, const QString &tableName, const QString &monitorColumn, const QString &cursorFrom, const QString &cursorTo, QString *errorMessage);
+    bool markAccessBatchUploaded(const QString &deltaPath, const QString &dataNo, QString *errorMessage);
     int recoverInterruptedUploads(QString *errorMessage);
     QVector<StoredUpload> retryableUploads(int limit, QString *errorMessage);
     QVector<StoredUpload> recentUploads(int limit, QString *errorMessage);

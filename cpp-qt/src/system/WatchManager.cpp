@@ -114,6 +114,12 @@ void WatchManager::inspectFile(const DeviceConfig &device, const QString &path) 
         return;
     }
 
+    if (device.fileType.compare("access", Qt::CaseInsensitive) == 0) {
+        emitted_.insert(key);
+        emit accessFileReady(device, fileInfo.absoluteFilePath());
+        return;
+    }
+
     QString errorMessage;
     const QString hash = FileHasher::sha256(path, &errorMessage);
     if (!errorMessage.isEmpty()) {
@@ -141,10 +147,11 @@ bool WatchManager::supportedFileType(const QString &fileName, const QString &fil
     if (type == "ppt") return suffix == "ppt" || suffix == "pptx";
     if (type == "pdf") return suffix == "pdf";
     if (type == "txt") return suffix == "txt";
+    if (type == "access") return suffix == "mdb" || suffix == "accdb";
     return false;
 }
 
 bool WatchManager::temporaryFile(const QString &fileName) {
     const QString lower = fileName.toLower();
-    return lower.startsWith("~$") || lower.startsWith(".") || lower.endsWith(".tmp") || lower.endsWith(".part") || lower.endsWith(".crdownload");
+    return lower.startsWith("~$") || lower.startsWith(".") || lower.endsWith(".tmp") || lower.endsWith(".part") || lower.endsWith(".crdownload") || lower.endsWith(".ldb") || lower.endsWith(".laccdb");
 }

@@ -2,6 +2,7 @@
 
 #include "app/UploadManager.h"
 #include "app/RuntimeConfig.h"
+#include "access/AccessDeltaCapture.h"
 #include "api/ApiClient.h"
 #include "api/WebSocketClient.h"
 #include "storage/ConfigStore.h"
@@ -73,6 +74,7 @@ private:
     LocalDatabase database_;
     ApiClient apiClient_;
     UploadManager uploadManager_;
+    AccessDeltaCapture accessDeltaCapture_;
     WebSocketClient webSocketClient_;
     WatchManager watchManager_;
     RuntimeConfig runtimeConfig_;

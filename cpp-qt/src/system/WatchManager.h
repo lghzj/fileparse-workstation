@@ -21,6 +21,7 @@ public:
 
 signals:
     void fileReady(const UploadRequest &request);
+    void accessFileReady(const DeviceConfig &device, const QString &path);
     void logMessage(const QString &message);
 
 private:

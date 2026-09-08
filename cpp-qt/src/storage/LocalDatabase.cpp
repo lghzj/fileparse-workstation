@@ -5,6 +5,7 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QSqlRecord>
+#include <QVariant>
 
 bool LocalDatabase::open(QString *errorMessage) {
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -48,6 +49,53 @@ bool LocalDatabase::open(QString *errorMessage) {
         *errorMessage = query.lastError().text();
         return false;
     }
+    if (!query.exec("CREATE TABLE IF NOT EXISTS access_schema_cache ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "device_id INTEGER NOT NULL,"
+                    "access_file_path TEXT NOT NULL,"
+                    "table_name TEXT NOT NULL,"
+                    "schema_hash TEXT NOT NULL,"
+                    "columns_json TEXT NOT NULL,"
+                    "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    "UNIQUE(device_id, access_file_path, table_name)"
+                    ")")) {
+        *errorMessage = query.lastError().text();
+        return false;
+    }
+    if (!query.exec("CREATE TABLE IF NOT EXISTS access_table_cursors ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "device_id INTEGER NOT NULL,"
+                    "access_file_path TEXT NOT NULL,"
+                    "table_name TEXT NOT NULL,"
+                    "monitor_column TEXT NOT NULL,"
+                    "last_cursor_value TEXT,"
+                    "pending_cursor_value TEXT,"
+                    "pending_data_no TEXT,"
+                    "status TEXT NOT NULL DEFAULT 'idle',"
+                    "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    "UNIQUE(device_id, access_file_path, table_name, monitor_column)"
+                    ")")) {
+        *errorMessage = query.lastError().text();
+        return false;
+    }
+    if (!query.exec("CREATE TABLE IF NOT EXISTS access_capture_batches ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "delta_path TEXT NOT NULL,"
+                    "device_id INTEGER NOT NULL,"
+                    "access_file_path TEXT NOT NULL,"
+                    "table_name TEXT NOT NULL,"
+                    "monitor_column TEXT NOT NULL,"
+                    "cursor_from TEXT,"
+                    "cursor_to TEXT NOT NULL,"
+                    "data_no TEXT,"
+                    "status TEXT NOT NULL DEFAULT 'pending_upload',"
+                    "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    "UNIQUE(delta_path, table_name, monitor_column)"
+                    ")")) {
+        *errorMessage = query.lastError().text();
+        return false;
+    }
     return true;
 }
 
@@ -81,6 +129,7 @@ bool LocalDatabase::markUploaded(const UploadRequest &request, const QString &da
         *errorMessage = query.lastError().text();
         return false;
     }
+    if (!markAccessBatchUploaded(request.localPath, dataNo, errorMessage)) return false;
     return true;
 }
 
@@ -96,6 +145,137 @@ bool LocalDatabase::markUploadFailed(const UploadRequest &request, const QString
     query.addBindValue(message.left(2000));
     if (!query.exec()) {
         *errorMessage = query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool LocalDatabase::accessCursor(int deviceId, const QString &accessFilePath, const QString &tableName, const QString &monitorColumn, AccessCursorState *state, QString *errorMessage) {
+    QSqlQuery query(db_);
+    query.prepare("SELECT last_cursor_value, pending_cursor_value, pending_data_no, status "
+                  "FROM access_table_cursors WHERE device_id=? AND access_file_path=? AND table_name=? AND monitor_column=?");
+    query.addBindValue(deviceId);
+    query.addBindValue(accessFilePath);
+    query.addBindValue(tableName);
+    query.addBindValue(monitorColumn);
+    if (!query.exec()) {
+        *errorMessage = query.lastError().text();
+        return false;
+    }
+    if (query.next() && state != nullptr) {
+        state->lastCursorValue = query.value(0).toString();
+        state->hasLastCursor = !query.value(0).isNull() && !state->lastCursorValue.isEmpty();
+        state->pendingCursorValue = query.value(1).toString();
+        state->pendingDataNo = query.value(2).toString();
+        state->status = query.value(3).toString();
+    }
+    return true;
+}
+
+bool LocalDatabase::saveAccessSchemaCache(int deviceId, const QString &accessFilePath, const QString &tableName, const QString &schemaHash, const QString &columnsJson, QString *errorMessage) {
+    QSqlQuery query(db_);
+    query.prepare("INSERT INTO access_schema_cache "
+                  "(device_id, access_file_path, table_name, schema_hash, columns_json, updated_at) "
+                  "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
+                  "ON CONFLICT(device_id, access_file_path, table_name) "
+                  "DO UPDATE SET schema_hash=excluded.schema_hash, columns_json=excluded.columns_json, updated_at=CURRENT_TIMESTAMP");
+    query.addBindValue(deviceId);
+    query.addBindValue(accessFilePath);
+    query.addBindValue(tableName);
+    query.addBindValue(schemaHash);
+    query.addBindValue(columnsJson);
+    if (!query.exec()) {
+        *errorMessage = query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool LocalDatabase::setAccessCursor(int deviceId, const QString &accessFilePath, const QString &tableName, const QString &monitorColumn, const QString &cursorValue, QString *errorMessage) {
+    QSqlQuery query(db_);
+    query.prepare("INSERT INTO access_table_cursors "
+                  "(device_id, access_file_path, table_name, monitor_column, last_cursor_value, pending_cursor_value, pending_data_no, status, updated_at) "
+                  "VALUES (?, ?, ?, ?, ?, NULL, NULL, 'idle', CURRENT_TIMESTAMP) "
+                  "ON CONFLICT(device_id, access_file_path, table_name, monitor_column) "
+                  "DO UPDATE SET last_cursor_value=excluded.last_cursor_value, pending_cursor_value=NULL, pending_data_no=NULL, "
+                  "status='idle', updated_at=CURRENT_TIMESTAMP");
+    query.addBindValue(deviceId);
+    query.addBindValue(accessFilePath);
+    query.addBindValue(tableName);
+    query.addBindValue(monitorColumn);
+    query.addBindValue(cursorValue);
+    if (!query.exec()) {
+        *errorMessage = query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool LocalDatabase::markAccessBatchPending(const QString &deltaPath, int deviceId, const QString &accessFilePath, const QString &tableName, const QString &monitorColumn, const QString &cursorFrom, const QString &cursorTo, QString *errorMessage) {
+    QSqlQuery query(db_);
+    query.prepare("INSERT INTO access_capture_batches "
+                  "(delta_path, device_id, access_file_path, table_name, monitor_column, cursor_from, cursor_to, status, updated_at) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_upload', CURRENT_TIMESTAMP) "
+                  "ON CONFLICT(delta_path, table_name, monitor_column) DO UPDATE SET cursor_to=excluded.cursor_to, status='pending_upload', updated_at=CURRENT_TIMESTAMP");
+    query.addBindValue(deltaPath);
+    query.addBindValue(deviceId);
+    query.addBindValue(accessFilePath);
+    query.addBindValue(tableName);
+    query.addBindValue(monitorColumn);
+    query.addBindValue(cursorFrom);
+    query.addBindValue(cursorTo);
+    if (!query.exec()) {
+        *errorMessage = query.lastError().text();
+        return false;
+    }
+    QSqlQuery cursorQuery(db_);
+    cursorQuery.prepare("INSERT INTO access_table_cursors "
+                        "(device_id, access_file_path, table_name, monitor_column, last_cursor_value, pending_cursor_value, pending_data_no, status, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, NULL, 'pending_upload', CURRENT_TIMESTAMP) "
+                        "ON CONFLICT(device_id, access_file_path, table_name, monitor_column) "
+                        "DO UPDATE SET pending_cursor_value=excluded.pending_cursor_value, status='pending_upload', updated_at=CURRENT_TIMESTAMP");
+    cursorQuery.addBindValue(deviceId);
+    cursorQuery.addBindValue(accessFilePath);
+    cursorQuery.addBindValue(tableName);
+    cursorQuery.addBindValue(monitorColumn);
+    cursorQuery.addBindValue(cursorFrom.isEmpty() ? QVariant() : QVariant(cursorFrom));
+    cursorQuery.addBindValue(cursorTo);
+    if (!cursorQuery.exec()) {
+        *errorMessage = cursorQuery.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool LocalDatabase::markAccessBatchUploaded(const QString &deltaPath, const QString &dataNo, QString *errorMessage) {
+    QSqlQuery query(db_);
+    query.prepare("UPDATE access_capture_batches SET data_no=?, status='uploaded', updated_at=CURRENT_TIMESTAMP "
+                  "WHERE delta_path=? AND status='pending_upload'");
+    query.addBindValue(dataNo);
+    query.addBindValue(deltaPath);
+    if (!query.exec()) {
+        *errorMessage = query.lastError().text();
+        return false;
+    }
+
+    QSqlQuery cursorQuery(db_);
+    cursorQuery.prepare("UPDATE access_table_cursors SET pending_cursor_value=("
+                        "SELECT b.cursor_to FROM access_capture_batches b WHERE b.delta_path=? "
+                        "AND b.device_id=access_table_cursors.device_id "
+                        "AND b.access_file_path=access_table_cursors.access_file_path "
+                        "AND b.table_name=access_table_cursors.table_name "
+                        "AND b.monitor_column=access_table_cursors.monitor_column), "
+                        "pending_data_no=?, status='uploaded', updated_at=CURRENT_TIMESTAMP "
+                        "WHERE EXISTS (SELECT 1 FROM access_capture_batches b WHERE b.delta_path=? "
+                        "AND b.device_id=access_table_cursors.device_id "
+                        "AND b.access_file_path=access_table_cursors.access_file_path "
+                        "AND b.table_name=access_table_cursors.table_name "
+                        "AND b.monitor_column=access_table_cursors.monitor_column)");
+    cursorQuery.addBindValue(deltaPath);
+    cursorQuery.addBindValue(dataNo);
+    cursorQuery.addBindValue(deltaPath);
+    if (!cursorQuery.exec()) {
+        *errorMessage = cursorQuery.lastError().text();
         return false;
     }
     return true;
@@ -118,6 +298,49 @@ bool LocalDatabase::markTaskResult(const QJsonObject &payload, QString *errorMes
     if (!query.exec()) {
         *errorMessage = query.lastError().text();
         return false;
+    }
+    if (localStatus == "parse_success") {
+        QSqlQuery batchQuery(db_);
+        batchQuery.prepare("SELECT device_id, access_file_path, table_name, monitor_column, cursor_to "
+                           "FROM access_capture_batches WHERE data_no=? AND status='uploaded'");
+        batchQuery.addBindValue(dataNo);
+        if (!batchQuery.exec()) {
+            *errorMessage = batchQuery.lastError().text();
+            return false;
+        }
+        while (batchQuery.next()) {
+            QSqlQuery cursorQuery(db_);
+            cursorQuery.prepare("INSERT INTO access_table_cursors "
+                                "(device_id, access_file_path, table_name, monitor_column, last_cursor_value, pending_cursor_value, pending_data_no, status, updated_at) "
+                                "VALUES (?, ?, ?, ?, ?, NULL, NULL, 'idle', CURRENT_TIMESTAMP) "
+                                "ON CONFLICT(device_id, access_file_path, table_name, monitor_column) "
+                                "DO UPDATE SET last_cursor_value=excluded.last_cursor_value, pending_cursor_value=NULL, "
+                                "pending_data_no=NULL, status='idle', updated_at=CURRENT_TIMESTAMP");
+            cursorQuery.addBindValue(batchQuery.value(0));
+            cursorQuery.addBindValue(batchQuery.value(1));
+            cursorQuery.addBindValue(batchQuery.value(2));
+            cursorQuery.addBindValue(batchQuery.value(3));
+            cursorQuery.addBindValue(batchQuery.value(4));
+            if (!cursorQuery.exec()) {
+                *errorMessage = cursorQuery.lastError().text();
+                return false;
+            }
+        }
+        QSqlQuery doneQuery(db_);
+        doneQuery.prepare("UPDATE access_capture_batches SET status='parse_success', updated_at=CURRENT_TIMESTAMP WHERE data_no=?");
+        doneQuery.addBindValue(dataNo);
+        if (!doneQuery.exec()) {
+            *errorMessage = doneQuery.lastError().text();
+            return false;
+        }
+    } else if (localStatus == "parse_failed") {
+        QSqlQuery failedQuery(db_);
+        failedQuery.prepare("UPDATE access_capture_batches SET status='parse_failed', updated_at=CURRENT_TIMESTAMP WHERE data_no=?");
+        failedQuery.addBindValue(dataNo);
+        if (!failedQuery.exec()) {
+            *errorMessage = failedQuery.lastError().text();
+            return false;
+        }
     }
     return true;
 }

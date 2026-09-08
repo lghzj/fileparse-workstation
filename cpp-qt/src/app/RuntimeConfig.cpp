@@ -1,5 +1,47 @@
 #include "RuntimeConfig.h"
 
+AccessRuleConfig AccessRuleConfig::fromJson(const QJsonObject &object) {
+    AccessRuleConfig config;
+    config.tableName = object.value("tableName").toString().trimmed();
+    const QJsonArray columns = object.value("monitorColumns").toArray();
+    for (const QJsonValue &value : columns) {
+        const QString column = value.toString().trimmed();
+        if (!column.isEmpty()) {
+            config.monitorColumns.append(column);
+        }
+    }
+    config.maxRows = object.value("maxRows").toInt(1000);
+    return config;
+}
+
+QJsonObject AccessRuleConfig::toJson() const {
+    QJsonObject object;
+    object["tableName"] = tableName;
+    QJsonArray columns;
+    for (const QString &column : monitorColumns) {
+        columns.append(column);
+    }
+    object["monitorColumns"] = columns;
+    object["maxRows"] = maxRows;
+    return object;
+}
+
+bool AccessRuleConfig::isValid(QString *errorMessage) const {
+    if (tableName.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = "accessRule.tableName is required";
+        return false;
+    }
+    if (monitorColumns.size() != 1 || monitorColumns.first().trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = "accessRule.monitorColumns must contain exactly one column";
+        return false;
+    }
+    if (maxRows <= 0) {
+        if (errorMessage) *errorMessage = "accessRule.maxRows must be greater than zero";
+        return false;
+    }
+    return true;
+}
+
 DeviceConfig DeviceConfig::fromJson(const QJsonObject &object) {
     DeviceConfig config;
     config.deviceId = object.value("deviceId").toInt();
@@ -11,6 +53,14 @@ DeviceConfig DeviceConfig::fromJson(const QJsonObject &object) {
     config.enabled = object.value("enabled").toBool(true);
     config.recursive = object.value("recursive").toBool(false);
     config.maxDepth = object.value("maxDepth").toInt(0);
+    config.accessMode = object.value("accessMode").toString("table_delta");
+    config.accessFirstRunPolicy = object.value("accessFirstRunPolicy").toString("export_all");
+    const QJsonArray accessRule = object.value("accessRule").toArray();
+    for (const QJsonValue &value : accessRule) {
+        if (value.isObject()) {
+            config.accessRules.append(AccessRuleConfig::fromJson(value.toObject()));
+        }
+    }
     return config;
 }
 
@@ -34,6 +84,27 @@ bool DeviceConfig::isValid(QString *errorMessage) const {
     if (maxDepth < 0) {
         if (errorMessage) *errorMessage = "maxDepth must be greater than or equal to zero";
         return false;
+    }
+    if (fileType.compare("access", Qt::CaseInsensitive) == 0) {
+        if (accessMode != "table_delta" && accessMode != "new_file") {
+            if (errorMessage) *errorMessage = "accessMode must be table_delta or new_file";
+            return false;
+        }
+        if (accessFirstRunPolicy != "export_all" && accessFirstRunPolicy != "start_from_latest") {
+            if (errorMessage) *errorMessage = "accessFirstRunPolicy must be export_all or start_from_latest";
+            return false;
+        }
+        if (accessRules.isEmpty()) {
+            if (errorMessage) *errorMessage = "accessRule is required when fileType is access";
+            return false;
+        }
+        for (int index = 0; index < accessRules.size(); ++index) {
+            QString ruleError;
+            if (!accessRules[index].isValid(&ruleError)) {
+                if (errorMessage) *errorMessage = QString("invalid accessRule %1: %2").arg(index).arg(ruleError);
+                return false;
+            }
+        }
     }
     return true;
 }
@@ -74,6 +145,15 @@ QJsonArray RuntimeConfig::toJsonArray() const {
         object["enabled"] = device.enabled;
         object["recursive"] = device.recursive;
         object["maxDepth"] = device.maxDepth;
+        if (device.fileType.compare("access", Qt::CaseInsensitive) == 0) {
+            object["accessMode"] = device.accessMode;
+            object["accessFirstRunPolicy"] = device.accessFirstRunPolicy;
+            QJsonArray accessRule;
+            for (const AccessRuleConfig &rule : device.accessRules) {
+                accessRule.append(rule.toJson());
+            }
+            object["accessRule"] = accessRule;
+        }
         array.append(object);
     }
     return array;

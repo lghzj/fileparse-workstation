@@ -3,7 +3,18 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
+
+struct AccessRuleConfig {
+    QString tableName;
+    QStringList monitorColumns;
+    int maxRows = 1000;
+
+    static AccessRuleConfig fromJson(const QJsonObject &object);
+    QJsonObject toJson() const;
+    bool isValid(QString *errorMessage = nullptr) const;
+};
 
 struct DeviceConfig {
     int deviceId = 0;
@@ -15,6 +26,9 @@ struct DeviceConfig {
     bool enabled = true;
     bool recursive = false;
     int maxDepth = 0;
+    QString accessMode;
+    QString accessFirstRunPolicy;
+    QVector<AccessRuleConfig> accessRules;
 
     static DeviceConfig fromJson(const QJsonObject &object);
     bool isValid(QString *errorMessage = nullptr) const;
