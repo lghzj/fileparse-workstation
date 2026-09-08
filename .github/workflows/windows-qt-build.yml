@@ -7,10 +7,11 @@ on:
       - main
     paths:
       - "cpp-qt/**"
+      - "scripts/build_qt_workstation_win7.ps1"
       - ".github/workflows/windows-qt-build.yml"
 
 jobs:
-  build:
+  build-modern:
     name: Windows Qt x64
     runs-on: windows-2022
 
@@ -53,4 +54,50 @@ jobs:
         with:
           name: NetStarWorkstation-windows-x64
           path: cpp-qt/dist/windows/NetStarWorkstation-windows-x64.zip
+          if-no-files-found: error
+
+  build-win7:
+    name: Windows Qt Win7 x64
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt 5
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "5.15.2"
+          host: "windows"
+          target: "desktop"
+          arch: "win64_msvc2019_64"
+          modules: "qtwebsockets"
+          cache: true
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Setup MSVC 2019
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Show Win7 toolchain
+        shell: pwsh
+        run: |
+          where.exe cl
+          where.exe cmake
+          where.exe ninja
+          where.exe windeployqt
+          qmake -query QT_VERSION
+
+      - name: Build Win7 package
+        shell: pwsh
+        run: .\scripts\build_qt_workstation_win7.ps1
+
+      - name: Upload Win7 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetStarWorkstation-Win7-x64
+          path: cpp-qt/dist/windows-win7/NetStarWorkstation-Win7-x64.zip
           if-no-files-found: error
