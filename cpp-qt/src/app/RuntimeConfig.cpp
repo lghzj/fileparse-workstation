@@ -1,5 +1,42 @@
 #include "RuntimeConfig.h"
 
+AccessSamplingConfig AccessSamplingConfig::fromJson(const QJsonObject &object) {
+    AccessSamplingConfig config;
+    config.enabled = object.value("enabled").toBool(false);
+    config.timeColumn = object.value("timeColumn").toString().trimmed();
+    config.intervalHours = object.value("intervalHours").toInt(0);
+    config.strategy = object.value("strategy").toString().trimmed();
+    return config;
+}
+
+QJsonObject AccessSamplingConfig::toJson() const {
+    QJsonObject object;
+    object["enabled"] = enabled;
+    object["timeColumn"] = timeColumn;
+    object["intervalHours"] = intervalHours;
+    object["strategy"] = strategy;
+    return object;
+}
+
+bool AccessSamplingConfig::isValid(QString *errorMessage) const {
+    if (!enabled) {
+        return true;
+    }
+    if (timeColumn.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = "accessRule.sampling.timeColumn is required";
+        return false;
+    }
+    if (intervalHours <= 0) {
+        if (errorMessage) *errorMessage = "accessRule.sampling.intervalHours must be greater than zero";
+        return false;
+    }
+    if (strategy != "last") {
+        if (errorMessage) *errorMessage = "accessRule.sampling.strategy currently supports only last";
+        return false;
+    }
+    return true;
+}
+
 AccessRuleConfig AccessRuleConfig::fromJson(const QJsonObject &object) {
     AccessRuleConfig config;
     config.tableName = object.value("tableName").toString().trimmed();
@@ -11,6 +48,9 @@ AccessRuleConfig AccessRuleConfig::fromJson(const QJsonObject &object) {
         }
     }
     config.maxRows = object.value("maxRows").toInt(1000);
+    if (object.value("sampling").isObject()) {
+        config.sampling = AccessSamplingConfig::fromJson(object.value("sampling").toObject());
+    }
     return config;
 }
 
@@ -23,6 +63,9 @@ QJsonObject AccessRuleConfig::toJson() const {
     }
     object["monitorColumns"] = columns;
     object["maxRows"] = maxRows;
+    if (sampling.enabled) {
+        object["sampling"] = sampling.toJson();
+    }
     return object;
 }
 
@@ -37,6 +80,9 @@ bool AccessRuleConfig::isValid(QString *errorMessage) const {
     }
     if (maxRows <= 0) {
         if (errorMessage) *errorMessage = "accessRule.maxRows must be greater than zero";
+        return false;
+    }
+    if (!sampling.isValid(errorMessage)) {
         return false;
     }
     return true;

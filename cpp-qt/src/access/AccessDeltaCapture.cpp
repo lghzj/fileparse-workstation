@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMap>
 #include <QMetaType>
 #include <QSqlError>
 #include <QSqlField>
@@ -235,6 +236,13 @@ AccessDeltaCapture::TableDelta AccessDeltaCapture::readTableDelta(QSqlDatabase &
         delta.rows.append(row);
         delta.cursorTo = cursorToString(query.value(cursorIndex));
     }
+    delta.rawRowCount = delta.rows.size();
+    if (rule.sampling.enabled) {
+        delta.rows = applyLastSampling(rule, delta.rows, errorMessage);
+        if (!errorMessage->isEmpty()) {
+            return delta;
+        }
+    }
     return delta;
 }
 
@@ -276,6 +284,7 @@ QString AccessDeltaCapture::writeDeltaJson(const DeviceConfig &device, const QSt
         QJsonObject table;
         table["tableName"] = delta.rule.tableName;
         table["rowCount"] = delta.rows.size();
+        table["rawRowCount"] = delta.rawRowCount;
         QJsonArray monitorColumns;
         for (const QString &column : delta.rule.monitorColumns) {
             monitorColumns.append(column);
@@ -285,6 +294,9 @@ QString AccessDeltaCapture::writeDeltaJson(const DeviceConfig &device, const QSt
         table["cursorTo"] = delta.cursorTo;
         table["schemaHash"] = delta.schemaHash;
         table["schema"] = delta.schema;
+        if (delta.rule.sampling.enabled) {
+            table["sampling"] = delta.rule.sampling.toJson();
+        }
         table["rows"] = delta.rows;
         tables.append(table);
     }
@@ -319,7 +331,46 @@ bool AccessDeltaCapture::validateRuleAgainstSchema(const AccessRuleConfig &rule,
             return false;
         }
     }
+    if (rule.sampling.enabled && !columns.contains(rule.sampling.timeColumn, Qt::CaseInsensitive)) {
+        *errorMessage = QString("sampling time column not found table=%1 column=%2").arg(rule.tableName, rule.sampling.timeColumn);
+        return false;
+    }
     return true;
+}
+
+QJsonArray AccessDeltaCapture::applyLastSampling(const AccessRuleConfig &rule, const QJsonArray &rows, QString *errorMessage) const {
+    QJsonArray sampled;
+    if (rows.isEmpty()) {
+        return sampled;
+    }
+    if (rule.sampling.intervalHours <= 0 || rule.sampling.strategy != "last") {
+        *errorMessage = QString("invalid sampling config table=%1").arg(rule.tableName);
+        return {};
+    }
+
+    QMap<qint64, QJsonObject> latestByBucket;
+    QMap<qint64, QDateTime> latestTimeByBucket;
+    const qint64 bucketSeconds = static_cast<qint64>(rule.sampling.intervalHours) * 3600;
+
+    for (const QJsonValue &value : rows) {
+        const QJsonObject row = value.toObject();
+        const QDateTime time = parseDateTimeValue(row.value(rule.sampling.timeColumn));
+        if (!time.isValid()) {
+            *errorMessage = QString("sampling time parse failed table=%1 column=%2 value=%3")
+                                .arg(rule.tableName, rule.sampling.timeColumn, row.value(rule.sampling.timeColumn).toVariant().toString());
+            return {};
+        }
+        const qint64 bucket = time.toSecsSinceEpoch() / bucketSeconds;
+        if (!latestByBucket.contains(bucket) || time >= latestTimeByBucket.value(bucket)) {
+            latestByBucket[bucket] = row;
+            latestTimeByBucket[bucket] = time;
+        }
+    }
+
+    for (auto iterator = latestByBucket.constBegin(); iterator != latestByBucket.constEnd(); ++iterator) {
+        sampled.append(iterator.value());
+    }
+    return sampled;
 }
 
 QString AccessDeltaCapture::quoteIdentifier(const QString &identifier) {
@@ -372,4 +423,40 @@ QString AccessDeltaCapture::cursorToString(const QVariant &value) {
         }
     }
     return value.toString();
+}
+
+QDateTime AccessDeltaCapture::parseDateTimeValue(const QJsonValue &value) {
+    if (value.isNull() || value.isUndefined()) {
+        return {};
+    }
+
+    const QString text = value.toString().trimmed();
+    if (text.isEmpty()) {
+        return {};
+    }
+
+    QDateTime parsed = QDateTime::fromString(text, Qt::ISODateWithMs);
+    if (parsed.isValid()) {
+        return parsed;
+    }
+    parsed = QDateTime::fromString(text, Qt::ISODate);
+    if (parsed.isValid()) {
+        return parsed;
+    }
+
+    const QStringList formats = {
+        "yyyy/M/d H:m:s",
+        "yyyy/M/d HH:mm:ss",
+        "yyyy/MM/dd HH:mm:ss",
+        "yyyy-MM-dd HH:mm:ss",
+        "M/d/yy H:m:s",
+        "MM/dd/yy HH:mm:ss"
+    };
+    for (const QString &format : formats) {
+        parsed = QDateTime::fromString(text, format);
+        if (parsed.isValid()) {
+            return parsed;
+        }
+    }
+    return {};
 }

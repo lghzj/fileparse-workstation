@@ -6,10 +6,22 @@
 #include <QStringList>
 #include <QVector>
 
+struct AccessSamplingConfig {
+    bool enabled = false;
+    QString timeColumn;
+    int intervalHours = 0;
+    QString strategy;
+
+    static AccessSamplingConfig fromJson(const QJsonObject &object);
+    QJsonObject toJson() const;
+    bool isValid(QString *errorMessage = nullptr) const;
+};
+
 struct AccessRuleConfig {
     QString tableName;
     QStringList monitorColumns;
     int maxRows = 1000;
+    AccessSamplingConfig sampling;
 
     static AccessRuleConfig fromJson(const QJsonObject &object);
     QJsonObject toJson() const;
