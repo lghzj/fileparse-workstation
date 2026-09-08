@@ -70,8 +70,17 @@ cmake --build --preset macos-homebrew
 平台打包脚本位于：
 
 - `cpp-qt/packaging/windows/build-zip.ps1`
+- `cpp-qt/packaging/windows/build-win7-zip.ps1`
 - `cpp-qt/packaging/linux/build-deb.sh`
 - `cpp-qt/packaging/macos/package.sh`
+
+构建 Qt Windows 7 包：
+
+```powershell
+scripts\build_qt_workstation_win7.ps1 -QtPrefix C:\Qt\5.15.2\msvc2019_64
+```
+
+Qt Windows 7 包必须使用 Qt 5.x，不能使用 Qt 6.x。脚本会生成 `cpp-qt/dist/windows-win7/NetStarWorkstation-Win7-x64.zip`，并随包带上 Qt SQLite/ODBC 插件。Access 数据库采集仍要求目标工作站安装 Microsoft Access Database Engine / ACE ODBC Driver，且驱动位数需要和工作站程序一致。
 
 C++/Qt 版本当前覆盖注册、配置同步、WebSocket、目录监听、上传、本地 SQLite 状态、失败重试、托盘驻留和诊断导出。
 
