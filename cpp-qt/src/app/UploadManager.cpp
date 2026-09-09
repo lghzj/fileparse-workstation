@@ -44,7 +44,11 @@ void UploadManager::submitUpload(const UploadRequest &request, bool manual) {
     }
 
     QString dbError;
-    if (!database_->recordUpload(request, "uploading", &dbError)) {
+    const bool usesUploadPath = !request.uploadPath.trimmed().isEmpty() && request.uploadPath != request.localPath;
+    const bool recorded = usesUploadPath
+        ? database_->recordAccessDeltaUpload(request, "uploading", &dbError)
+        : database_->recordUpload(request, "uploading", &dbError);
+    if (!recorded) {
         emit logMessage("record upload failed: " + dbError);
     }
     emit recordsChanged();
@@ -104,9 +108,10 @@ bool UploadManager::canUpload(const UploadRequest &request, QString *message) co
         *message = "local path is empty";
         return false;
     }
-    QFileInfo info(request.localPath);
+    const QString uploadPath = request.uploadPath.trimmed().isEmpty() ? request.localPath : request.uploadPath;
+    QFileInfo info(uploadPath);
     if (!info.exists() || !info.isFile()) {
-        *message = "local file is missing: " + request.localPath;
+        *message = "local file is missing: " + uploadPath;
         return false;
     }
     if (request.fileHash.trimmed().isEmpty()) {

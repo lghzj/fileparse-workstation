@@ -6,6 +6,7 @@
 #include <QVector>
 #include <QJsonObject>
 #include <QString>
+#include <QVariantList>
 
 struct AccessCursorState {
     bool hasLastCursor = false;
@@ -26,8 +27,13 @@ struct StoredUpload {
 
 class LocalDatabase final {
 public:
+    explicit LocalDatabase(const QString &connectionName = QString());
+    ~LocalDatabase();
+
     bool open(QString *errorMessage);
     bool recordUpload(const UploadRequest &request, const QString &status, QString *errorMessage);
+    bool recordAccessConverting(const UploadRequest &request, QString *errorMessage);
+    bool recordAccessDeltaUpload(const UploadRequest &request, const QString &status, QString *errorMessage);
     bool markUploaded(const UploadRequest &request, const QString &dataNo, QString *errorMessage);
     bool markUploadFailed(const UploadRequest &request, const QString &message, QString *errorMessage);
     bool markTaskResult(const QJsonObject &payload, QString *errorMessage);
@@ -39,12 +45,14 @@ public:
     int recoverInterruptedUploads(QString *errorMessage);
     QVector<StoredUpload> retryableUploads(int limit, QString *errorMessage);
     QVector<StoredUpload> recentUploads(int limit, QString *errorMessage);
+    bool uploadByDataNo(const QString &dataNo, StoredUpload *upload, QString *errorMessage);
     int clearFailedUploads(QString *errorMessage);
 
 private:
     bool ensureColumn(const QString &name, const QString &definition, QString *errorMessage);
-    QVector<StoredUpload> queryUploads(const QString &whereClause, const QString &orderBy, int limit, QString *errorMessage);
+    QVector<StoredUpload> queryUploads(const QString &whereClause, const QString &orderBy, int limit, QString *errorMessage, const QVariantList &whereValues = {});
     static void bindRequest(QSqlQuery *query, const UploadRequest &request);
 
     QSqlDatabase db_;
+    QString connectionName_;
 };

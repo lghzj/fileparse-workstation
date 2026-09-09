@@ -94,6 +94,7 @@ DeviceConfig DeviceConfig::fromJson(const QJsonObject &object) {
     config.deviceCode = object.value("deviceCode").toString();
     config.deviceName = object.value("deviceName").toString();
     config.watchPath = object.value("watchPath").toString();
+    config.watchFilePattern = object.value("watchFilePattern").toString().trimmed();
     config.fileType = object.value("fileType").toString();
     config.stableSeconds = object.value("stableSeconds").toInt(2);
     config.enabled = object.value("enabled").toBool(true);
@@ -121,6 +122,10 @@ bool DeviceConfig::isValid(QString *errorMessage) const {
     }
     if (fileType.trimmed().isEmpty()) {
         if (errorMessage) *errorMessage = "fileType is required";
+        return false;
+    }
+    if (watchFilePattern.contains('/') || watchFilePattern.contains('\\')) {
+        if (errorMessage) *errorMessage = "watchFilePattern must be a file name or wildcard without path separators";
         return false;
     }
     if (stableSeconds <= 0) {
@@ -186,6 +191,7 @@ QJsonArray RuntimeConfig::toJsonArray() const {
         object["deviceCode"] = device.deviceCode;
         object["deviceName"] = device.deviceName;
         object["watchPath"] = device.watchPath;
+        object["watchFilePattern"] = device.watchFilePattern;
         object["fileType"] = device.fileType;
         object["stableSeconds"] = device.stableSeconds;
         object["enabled"] = device.enabled;

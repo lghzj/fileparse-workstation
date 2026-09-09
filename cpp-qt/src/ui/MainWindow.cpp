@@ -34,7 +34,15 @@
 #include <QWidget>
 
 MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent), uploadManager_(&apiClient_, &database_, this), accessDeltaCapture_(&database_, this) {
+    : QMainWindow(parent), uploadManager_(&apiClient_, &database_, this) {
+    qRegisterMetaType<DeviceConfig>("DeviceConfig");
+    qRegisterMetaType<UploadRequest>("UploadRequest");
+
+    accessDeltaCapture_ = new AccessDeltaCapture();
+    accessDeltaCapture_->moveToThread(&accessCaptureThread_);
+    connect(&accessCaptureThread_, &QThread::finished, accessDeltaCapture_, &QObject::deleteLater);
+    accessCaptureThread_.start();
+
     buildUi();
     setupTray();
     loadSettings();
@@ -183,7 +191,7 @@ MainWindow::MainWindow(QWidget *parent)
             updateStatusCards();
             return;
         }
-        QMessageBox::information(this, "配置已更新", QString("平台配置已同步，当前监听目录数：%1。").arg(runtimeConfig_.devices.size()));
+        QMessageBox::information(this, "配置已更新", QString("平台配置已同步，当前监听路径数：%1。").arg(runtimeConfig_.devices.size()));
     });
 
     connect(&apiClient_, &ApiClient::requestFailed, this, [this](const QString &operation, const QString &message) {
@@ -204,8 +212,31 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(&uploadManager_, &UploadManager::logMessage, this, &MainWindow::appendLog);
     connect(&uploadManager_, &UploadManager::recordsChanged, this, &MainWindow::refreshUploadTable);
-    connect(&accessDeltaCapture_, &AccessDeltaCapture::logMessage, this, &MainWindow::appendLog);
-    connect(&accessDeltaCapture_, &AccessDeltaCapture::uploadReady, this, [this](const UploadRequest &request) {
+    connect(accessDeltaCapture_, &AccessDeltaCapture::logMessage, this, &MainWindow::appendLog);
+    connect(accessDeltaCapture_, &AccessDeltaCapture::conversionStarted, this, [this](const UploadRequest &request) {
+        QString dbError;
+        if (!database_.recordAccessConverting(request, &dbError)) {
+            appendLog("record access converting failed: " + dbError);
+        }
+        appendLog("access converting: " + request.fileName);
+        refreshUploadTable();
+    });
+    connect(accessDeltaCapture_, &AccessDeltaCapture::conversionFailed, this, [this](const UploadRequest &request, const QString &message) {
+        QString dbError;
+        if (!database_.markUploadFailed(request, message, &dbError)) {
+            appendLog("record access conversion failed status failed: " + dbError);
+        }
+        refreshUploadTable();
+    });
+    connect(accessDeltaCapture_, &AccessDeltaCapture::conversionSkipped, this, [this](const UploadRequest &request, const QString &message) {
+        QString dbError;
+        if (!database_.recordUpload(request, "no_new_rows", &dbError)) {
+            appendLog("record access no new rows failed: " + dbError);
+        }
+        appendLog(message + ": " + request.fileName);
+        refreshUploadTable();
+    });
+    connect(accessDeltaCapture_, &AccessDeltaCapture::uploadReady, this, [this](const UploadRequest &request) {
         uploadRequest(request);
     });
 
@@ -228,6 +259,7 @@ MainWindow::MainWindow(QWidget *parent)
             appendLog("mark task result failed: " + errorMessage);
         }
         appendLog("task result: " + QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact)));
+        showTaskResultNotice(payload);
         refreshUploadTable();
     });
     connect(&webSocketClient_, &WebSocketClient::doctorRunRequested, this, [this](const QString &messageId, const QString &requestId, bool checkNetwork) {
@@ -239,9 +271,14 @@ MainWindow::MainWindow(QWidget *parent)
     connect(&watchManager_, &WatchManager::fileReady, this, [this](const UploadRequest &request) {
         uploadRequest(request);
     });
-    connect(&watchManager_, &WatchManager::accessFileReady, &accessDeltaCapture_, &AccessDeltaCapture::captureFile);
+    connect(&watchManager_, &WatchManager::accessFileReady, accessDeltaCapture_, &AccessDeltaCapture::captureFile, Qt::QueuedConnection);
     updateStatusCards();
     refreshDeviceTable();
+}
+
+MainWindow::~MainWindow() {
+    accessCaptureThread_.quit();
+    accessCaptureThread_.wait(5000);
 }
 
 void MainWindow::buildUi() {
@@ -556,16 +593,18 @@ QWidget *MainWindow::buildStatusTab() {
     auto *deviceLayout = new QVBoxLayout(deviceGroup);
     deviceLayout->setContentsMargins(0, 6, 0, 0);
     deviceLayout->setSpacing(6);
-    deviceTable_ = new QTableWidget(0, 4, deviceGroup);
-    deviceTable_->setHorizontalHeaderLabels({"设备", "目录", "类型", "状态"});
+    deviceTable_ = new QTableWidget(0, 5, deviceGroup);
+    deviceTable_->setHorizontalHeaderLabels({"设备", "目录", "监听文件", "类型", "状态"});
     configureTable(deviceTable_);
     deviceTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
     deviceTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     deviceTable_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
     deviceTable_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Interactive);
+    deviceTable_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Interactive);
     deviceTable_->setColumnWidth(0, 180);
-    deviceTable_->setColumnWidth(2, 100);
+    deviceTable_->setColumnWidth(2, 140);
     deviceTable_->setColumnWidth(3, 100);
+    deviceTable_->setColumnWidth(4, 100);
     deviceTable_->setMinimumHeight(130);
     deviceTable_->setMaximumHeight(190);
     deviceTable_->clearSelection();
@@ -661,7 +700,7 @@ QWidget *MainWindow::buildConnectionTab() {
     configVersionLabel_->setObjectName("fieldValue");
     infoForm->addRow("MAC", macEdit_);
     infoForm->addRow("主机名", hostnameEdit_);
-    infoForm->addRow("监听目录数", configVersionLabel_);
+    infoForm->addRow("监听路径数", configVersionLabel_);
     shellLayout->addWidget(infoGroup);
 
     deviceIdSpin_ = new QSpinBox(page);
@@ -994,10 +1033,11 @@ void MainWindow::refreshDeviceTable() {
     for (int row = 0; row < runtimeConfig_.devices.size(); ++row) {
         const DeviceConfig &device = runtimeConfig_.devices[row];
         QStringList values;
-        if (deviceTable_->columnCount() == 4) {
+        if (deviceTable_->columnCount() == 5) {
             values = QStringList({
                 device.deviceName.isEmpty() ? QString::number(device.deviceId) : device.deviceName,
                 device.watchPath,
+                device.watchFilePattern.isEmpty() ? "全部" : device.watchFilePattern,
                 device.fileType,
                 device.enabled ? "是" : "否",
             });
@@ -1043,7 +1083,7 @@ void MainWindow::renderDiagnostics(const QJsonObject &result) {
     const QHash<QString, QString> names = {
         {"config", "配置文件"},
         {"token", "注册状态"},
-        {"watchPath", "监听目录"},
+        {"watchPath", "监听路径"},
         {"api", "平台连接"},
         {"stateDb", "状态库"},
         {"logDir", "日志目录"},
@@ -1057,7 +1097,7 @@ void MainWindow::renderDiagnostics(const QJsonObject &result) {
     const QHash<QString, QHash<QString, QString>> messages = {
         {"config", {{"ok", "配置文件已加载"}, {"failed", "配置文件读取失败"}}},
         {"token", {{"ok", "工作站已注册"}, {"failed", "工作站尚未注册"}}},
-        {"watchPath", {{"ok", "监听目录可访问"}, {"failed", "监听目录不可访问"}}},
+        {"watchPath", {{"ok", "监听路径可访问"}, {"failed", "监听路径不可访问"}}},
         {"api", {{"ok", "平台连接正常"}, {"failed", "平台连接异常"}, {"skipped", "未执行网络检查"}}},
         {"stateDb", {{"ok", "状态库可用"}, {"failed", "状态库异常"}}},
         {"logDir", {{"ok", "日志目录可写"}, {"failed", "日志目录不可写"}}},
@@ -1130,6 +1170,45 @@ void MainWindow::applyConfigPayload(const QJsonObject &payload) {
 
 void MainWindow::uploadRequest(const UploadRequest &request, bool manual) {
     uploadManager_.submitUpload(request, manual);
+}
+
+void MainWindow::showTaskResultNotice(const QJsonObject &payload) {
+    const QString dataNo = payload.value("dataNo").toString().trimmed();
+    const QString remoteStatus = payload.value("status").toString().trimmed().toLower();
+    if (dataNo.isEmpty() || (remoteStatus != "success" && remoteStatus != "failed")) {
+        return;
+    }
+    if (notifiedTaskResults_.contains(dataNo)) {
+        return;
+    }
+    notifiedTaskResults_.insert(dataNo);
+
+    QString errorMessage;
+    StoredUpload upload;
+    const bool found = database_.uploadByDataNo(dataNo, &upload, &errorMessage);
+    if (!found && !errorMessage.isEmpty()) {
+        appendLog("task result notice lookup failed: " + errorMessage);
+    }
+
+    const QString fileName = found && !upload.request.fileName.isEmpty() ? upload.request.fileName : dataNo;
+    const bool success = remoteStatus == "success";
+    const QString title = success ? fileName + " 解析完成" : fileName + " 解析失败";
+    QString message = success ? "平台已完成解析，可在管理端查看结果。" : "平台解析失败，请检查结果。";
+    const QString detail = payload.value("errorMessage").toString().trimmed();
+    if (!success && !detail.isEmpty()) {
+        message = detail.left(180);
+    }
+
+    appendLog(title + "：" + message);
+    statusBar()->showMessage(title, 5000);
+    if (trayIcon_ != nullptr && trayIcon_->isVisible()) {
+        trayIcon_->showMessage(
+            title,
+            message,
+            success ? QSystemTrayIcon::Information : QSystemTrayIcon::Warning,
+            5000
+        );
+    }
 }
 
 void MainWindow::refreshUploadTable() {
@@ -1265,8 +1344,17 @@ void MainWindow::openLogDirectory() {
 
 QString MainWindow::translatedStatus(const QString &status) {
     const QString normalized = status.trimmed().toLower();
-    if (normalized == "uploaded" || normalized == "success" || normalized == "completed") {
-        return "已上传";
+    if (normalized == "converting") {
+        return "转化中";
+    }
+    if (normalized == "uploaded") {
+        return "解析中";
+    }
+    if (normalized == "no_new_rows") {
+        return "无新增";
+    }
+    if (normalized == "success" || normalized == "completed") {
+        return "解析完成";
     }
     if (normalized == "uploading" || normalized == "pending" || normalized == "queued") {
         return "上传中";
@@ -1275,7 +1363,7 @@ QString MainWindow::translatedStatus(const QString &status) {
         return "上传失败";
     }
     if (normalized == "parse_success" || normalized == "parsed") {
-        return "解析成功";
+        return "解析完成";
     }
     if (normalized == "parse_failed") {
         return "解析失败";

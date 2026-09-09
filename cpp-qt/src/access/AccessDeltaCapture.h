@@ -17,12 +17,15 @@ class AccessDeltaCapture final : public QObject {
     Q_OBJECT
 
 public:
-    explicit AccessDeltaCapture(LocalDatabase *database, QObject *parent = nullptr);
+    explicit AccessDeltaCapture(QObject *parent = nullptr);
 
 public slots:
     void captureFile(const DeviceConfig &device, const QString &path);
 
 signals:
+    void conversionStarted(const UploadRequest &request);
+    void conversionFailed(const UploadRequest &request, const QString &message);
+    void conversionSkipped(const UploadRequest &request, const QString &message);
     void uploadReady(const UploadRequest &request);
     void logMessage(const QString &message);
 
@@ -51,5 +54,5 @@ private:
     static QString cursorToString(const QVariant &value);
     static QDateTime parseDateTimeValue(const QJsonValue &value);
 
-    LocalDatabase *database_ = nullptr;
+    LocalDatabase database_;
 };

@@ -89,11 +89,12 @@ void ApiClient::uploadFile(const UploadRequest &upload) {
     addField("fileMtime", upload.fileMtime.toUTC().toString(Qt::ISODateWithMs));
     addField("fileHash", upload.fileHash);
 
-    auto *file = new QFile(upload.localPath);
+    const QString uploadPath = upload.uploadPath.trimmed().isEmpty() ? upload.localPath : upload.uploadPath;
+    auto *file = new QFile(uploadPath);
     if (!file->open(QIODevice::ReadOnly)) {
         file->deleteLater();
         multiPart->deleteLater();
-        const QString message = QString("cannot open file: %1").arg(upload.localPath);
+        const QString message = QString("cannot open file: %1").arg(uploadPath);
         emit uploadFailed(upload, message);
         emit requestFailed("upload", message);
         return;

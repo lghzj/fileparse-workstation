@@ -5,16 +5,34 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QSqlRecord>
+#include <QUuid>
 #include <QVariant>
 
+LocalDatabase::LocalDatabase(const QString &connectionName)
+    : connectionName_(connectionName.trimmed().isEmpty()
+          ? "workstation_sqlite_" + QUuid::createUuid().toString(QUuid::WithoutBraces)
+          : connectionName) {}
+
+LocalDatabase::~LocalDatabase() {
+    const QString name = db_.connectionName();
+    if (!name.isEmpty()) {
+        db_.close();
+        db_ = QSqlDatabase();
+        QSqlDatabase::removeDatabase(name);
+    }
+}
+
 bool LocalDatabase::open(QString *errorMessage) {
+    if (db_.isOpen()) {
+        return true;
+    }
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (!QDir().mkpath(dir)) {
         *errorMessage = QString("cannot create app data directory: %1").arg(dir);
         return false;
     }
 
-    db_ = QSqlDatabase::addDatabase("QSQLITE");
+    db_ = QSqlDatabase::addDatabase("QSQLITE", connectionName_);
     db_.setDatabaseName(dir + "/workstation.db");
     if (!db_.open()) {
         *errorMessage = db_.lastError().text();
@@ -27,6 +45,7 @@ bool LocalDatabase::open(QString *errorMessage) {
                     "device_id INTEGER NOT NULL,"
                     "local_path TEXT NOT NULL,"
                     "file_name TEXT NOT NULL,"
+                    "upload_path TEXT,"
                     "file_size INTEGER NOT NULL,"
                     "file_mtime TEXT NOT NULL,"
                     "file_hash TEXT NOT NULL,"
@@ -41,6 +60,7 @@ bool LocalDatabase::open(QString *errorMessage) {
         return false;
     }
     if (!ensureColumn("data_no", "ALTER TABLE upload_records ADD COLUMN data_no TEXT", errorMessage)) return false;
+    if (!ensureColumn("upload_path", "ALTER TABLE upload_records ADD COLUMN upload_path TEXT", errorMessage)) return false;
     if (!ensureColumn("retry_count", "ALTER TABLE upload_records ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0", errorMessage)) return false;
     if (!ensureColumn("last_error_message", "ALTER TABLE upload_records ADD COLUMN last_error_message TEXT", errorMessage)) return false;
 
@@ -102,10 +122,10 @@ bool LocalDatabase::open(QString *errorMessage) {
 bool LocalDatabase::recordUpload(const UploadRequest &request, const QString &status, QString *errorMessage) {
     QSqlQuery query(db_);
     query.prepare("INSERT INTO upload_records "
-                  "(device_id, local_path, file_name, file_size, file_mtime, file_hash, status, updated_at) "
-                  "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
+                  "(device_id, local_path, file_name, upload_path, file_size, file_mtime, file_hash, status, updated_at) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
                   "ON CONFLICT(device_id, local_path, file_size, file_mtime) "
-                  "DO UPDATE SET status=excluded.status, file_hash=excluded.file_hash, "
+                  "DO UPDATE SET status=excluded.status, file_name=excluded.file_name, upload_path=excluded.upload_path, file_hash=excluded.file_hash, "
                   "last_error_message=NULL, updated_at=CURRENT_TIMESTAMP");
     bindRequest(&query, request);
     query.addBindValue(status);
@@ -114,6 +134,33 @@ bool LocalDatabase::recordUpload(const UploadRequest &request, const QString &st
         return false;
     }
     return true;
+}
+
+bool LocalDatabase::recordAccessConverting(const UploadRequest &request, QString *errorMessage) {
+    return recordUpload(request, "converting", errorMessage);
+}
+
+bool LocalDatabase::recordAccessDeltaUpload(const UploadRequest &request, const QString &status, QString *errorMessage) {
+    QSqlQuery update(db_);
+    update.prepare("UPDATE upload_records SET file_name=?, upload_path=?, file_size=?, file_mtime=?, file_hash=?, "
+                   "status=?, data_no=NULL, last_error_message=NULL, updated_at=CURRENT_TIMESTAMP "
+                   "WHERE device_id=? AND local_path=? AND status='converting'");
+    update.addBindValue(request.fileName);
+    update.addBindValue(request.uploadPath);
+    update.addBindValue(request.fileSize);
+    update.addBindValue(request.fileMtime.toUTC().toString(Qt::ISODateWithMs));
+    update.addBindValue(request.fileHash);
+    update.addBindValue(status);
+    update.addBindValue(request.deviceId);
+    update.addBindValue(request.localPath);
+    if (!update.exec()) {
+        *errorMessage = update.lastError().text();
+        return false;
+    }
+    if (update.numRowsAffected() > 0) {
+        return true;
+    }
+    return recordUpload(request, status, errorMessage);
 }
 
 bool LocalDatabase::markUploaded(const UploadRequest &request, const QString &dataNo, QString *errorMessage) {
@@ -129,17 +176,19 @@ bool LocalDatabase::markUploaded(const UploadRequest &request, const QString &da
         *errorMessage = query.lastError().text();
         return false;
     }
-    if (!markAccessBatchUploaded(request.localPath, dataNo, errorMessage)) return false;
+    const QString batchPath = request.uploadPath.trimmed().isEmpty() ? request.localPath : request.uploadPath;
+    if (!markAccessBatchUploaded(batchPath, dataNo, errorMessage)) return false;
     return true;
 }
 
 bool LocalDatabase::markUploadFailed(const UploadRequest &request, const QString &message, QString *errorMessage) {
     QSqlQuery query(db_);
     query.prepare("INSERT INTO upload_records "
-                  "(device_id, local_path, file_name, file_size, file_mtime, file_hash, status, retry_count, last_error_message, updated_at) "
-                  "VALUES (?, ?, ?, ?, ?, ?, 'upload_failed', 1, ?, CURRENT_TIMESTAMP) "
+                  "(device_id, local_path, file_name, upload_path, file_size, file_mtime, file_hash, status, retry_count, last_error_message, updated_at) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, 'upload_failed', 1, ?, CURRENT_TIMESTAMP) "
                   "ON CONFLICT(device_id, local_path, file_size, file_mtime) "
                   "DO UPDATE SET status='upload_failed', retry_count=retry_count + 1, "
+                  "file_name=excluded.file_name, upload_path=excluded.upload_path, "
                   "last_error_message=excluded.last_error_message, updated_at=CURRENT_TIMESTAMP");
     bindRequest(&query, request);
     query.addBindValue(message.left(2000));
@@ -364,6 +413,25 @@ QVector<StoredUpload> LocalDatabase::recentUploads(int limit, QString *errorMess
     return queryUploads(QString(), "ORDER BY updated_at DESC, id DESC", limit, errorMessage);
 }
 
+bool LocalDatabase::uploadByDataNo(const QString &dataNo, StoredUpload *upload, QString *errorMessage) {
+    if (dataNo.trimmed().isEmpty()) {
+        *errorMessage = "dataNo is empty";
+        return false;
+    }
+    const QVector<StoredUpload> uploads = queryUploads("WHERE data_no = ?", "ORDER BY updated_at DESC, id DESC", 1, errorMessage, {dataNo});
+    if (!errorMessage->isEmpty()) {
+        return false;
+    }
+    if (uploads.isEmpty()) {
+        *errorMessage = "upload record not found: " + dataNo;
+        return false;
+    }
+    if (upload != nullptr) {
+        *upload = uploads.first();
+    }
+    return true;
+}
+
 int LocalDatabase::clearFailedUploads(QString *errorMessage) {
     QSqlQuery query(db_);
     if (!query.exec("DELETE FROM upload_records WHERE status IN ('upload_failed', 'parse_failed')")) {
@@ -373,12 +441,15 @@ int LocalDatabase::clearFailedUploads(QString *errorMessage) {
     return query.numRowsAffected();
 }
 
-QVector<StoredUpload> LocalDatabase::queryUploads(const QString &whereClause, const QString &orderBy, int limit, QString *errorMessage) {
+QVector<StoredUpload> LocalDatabase::queryUploads(const QString &whereClause, const QString &orderBy, int limit, QString *errorMessage, const QVariantList &whereValues) {
     QVector<StoredUpload> uploads;
     QSqlQuery query(db_);
     query.prepare("SELECT device_id, local_path, file_name, file_size, file_mtime, file_hash, "
-                  "status, retry_count, last_error_message, data_no, updated_at "
+                  "status, retry_count, last_error_message, data_no, updated_at, upload_path "
                   "FROM upload_records " + whereClause + " " + orderBy + " LIMIT ?");
+    for (const QVariant &value : whereValues) {
+        query.addBindValue(value);
+    }
     query.addBindValue(limit);
     if (!query.exec()) {
         *errorMessage = query.lastError().text();
@@ -397,6 +468,7 @@ QVector<StoredUpload> LocalDatabase::queryUploads(const QString &whereClause, co
         upload.lastErrorMessage = query.value(8).toString();
         upload.dataNo = query.value(9).toString();
         upload.updatedAt = query.value(10).toString();
+        upload.request.uploadPath = query.value(11).toString();
         uploads.append(upload);
     }
     return uploads;
@@ -424,6 +496,7 @@ void LocalDatabase::bindRequest(QSqlQuery *query, const UploadRequest &request) 
     query->addBindValue(request.deviceId);
     query->addBindValue(request.localPath);
     query->addBindValue(request.fileName);
+    query->addBindValue(request.uploadPath.trimmed().isEmpty() ? request.localPath : request.uploadPath);
     query->addBindValue(request.fileSize);
     query->addBindValue(request.fileMtime.toUTC().toString(Qt::ISODateWithMs));
     query->addBindValue(request.fileHash);

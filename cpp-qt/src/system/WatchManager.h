@@ -34,6 +34,7 @@ private:
     void scanOnce();
     void inspectFile(const DeviceConfig &device, const QString &path);
     QStringList collectFiles(const DeviceConfig &device, const QDir &dir) const;
+    static bool matchesWatchFilePattern(const QString &fileName, const QString &watchFilePattern);
     static bool supportedFileType(const QString &fileName, const QString &fileType);
     static bool temporaryFile(const QString &fileName);
 
@@ -41,5 +42,6 @@ private:
     RuntimeConfig config_;
     QHash<QString, Snapshot> snapshots_;
     QSet<QString> emitted_;
+    bool scanning_ = false;
     int maxFilesPerScan_ = 1000;
 };

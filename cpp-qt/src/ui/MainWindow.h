@@ -15,9 +15,11 @@
 #include <QMenu>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSet>
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QTabWidget>
+#include <QThread>
 #include <QTimer>
 #include <QSystemTrayIcon>
 #include <QSpinBox>
@@ -29,6 +31,7 @@ class MainWindow final : public QMainWindow {
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override;
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -60,6 +63,7 @@ private:
     void chooseAndUploadFile();
     void applyConfigPayload(const QJsonObject &payload);
     void uploadRequest(const UploadRequest &request, bool manual = false);
+    void showTaskResultNotice(const QJsonObject &payload);
     void refreshUploadTable();
     void retrySelectedUpload();
     void clearFailedUploads();
@@ -74,7 +78,8 @@ private:
     LocalDatabase database_;
     ApiClient apiClient_;
     UploadManager uploadManager_;
-    AccessDeltaCapture accessDeltaCapture_;
+    QThread accessCaptureThread_;
+    AccessDeltaCapture *accessDeltaCapture_ = nullptr;
     WebSocketClient webSocketClient_;
     WatchManager watchManager_;
     RuntimeConfig runtimeConfig_;
@@ -82,6 +87,7 @@ private:
     bool workstationRunning_ = false;
     bool startPendingAfterRegister_ = false;
     bool startPendingAfterConfig_ = false;
+    QSet<QString> notifiedTaskResults_;
 
     QLineEdit *baseUrlEdit_ = nullptr;
     QLineEdit *ipEdit_ = nullptr;

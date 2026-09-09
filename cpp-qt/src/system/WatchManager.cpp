@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
+#include <QRegularExpression>
 
 WatchManager::WatchManager(QObject *parent) : QObject(parent) {
     timer_.setInterval(1000);
@@ -32,21 +33,35 @@ void WatchManager::stop() {
 }
 
 void WatchManager::scanOnce() {
+    if (scanning_) {
+        return;
+    }
+    scanning_ = true;
     for (const DeviceConfig &device : config_.devices) {
         if (!device.enabled) {
             continue;
         }
-        QDir dir(device.watchPath);
-        if (!dir.exists()) {
+        const QFileInfo watchInfo(device.watchPath);
+        if (!watchInfo.exists()) {
             emit logMessage("watch path unavailable: " + device.watchPath);
             continue;
         }
+        if (watchInfo.isFile()) {
+            inspectFile(device, watchInfo.absoluteFilePath());
+            continue;
+        }
+        if (!watchInfo.isDir()) {
+            emit logMessage("watch path is not a file or directory: " + device.watchPath);
+            continue;
+        }
 
+        QDir dir(watchInfo.absoluteFilePath());
         const QStringList files = collectFiles(device, dir);
         for (const QString &path : files) {
             inspectFile(device, path);
         }
     }
+    scanning_ = false;
 }
 
 QStringList WatchManager::collectFiles(const DeviceConfig &device, const QDir &dir) const {
@@ -56,6 +71,9 @@ QStringList WatchManager::collectFiles(const DeviceConfig &device, const QDir &d
     if (!device.recursive) {
         const QFileInfoList entries = dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
         for (const QFileInfo &entry : entries) {
+            if (!matchesWatchFilePattern(entry.fileName(), device.watchFilePattern)) {
+                continue;
+            }
             files.append(entry.absoluteFilePath());
             if (files.size() >= maxFilesPerScan_) {
                 return files;
@@ -67,6 +85,10 @@ QStringList WatchManager::collectFiles(const DeviceConfig &device, const QDir &d
     QDirIterator iterator(rootPath, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
     while (iterator.hasNext()) {
         const QString path = iterator.next();
+        const QFileInfo entry(path);
+        if (!matchesWatchFilePattern(entry.fileName(), device.watchFilePattern)) {
+            continue;
+        }
         if (device.maxDepth > 0) {
             const QString relative = QDir(rootPath).relativeFilePath(path);
             const int depth = relative.count('/');
@@ -88,6 +110,9 @@ void WatchManager::inspectFile(const DeviceConfig &device, const QString &path) 
         return;
     }
     if (temporaryFile(fileInfo.fileName())) {
+        return;
+    }
+    if (!matchesWatchFilePattern(fileInfo.fileName(), device.watchFilePattern)) {
         return;
     }
     if (!supportedFileType(fileInfo.fileName(), device.fileType)) {
@@ -136,6 +161,29 @@ void WatchManager::inspectFile(const DeviceConfig &device, const QString &path) 
     request.fileHash = hash;
     emitted_.insert(key);
     emit fileReady(request);
+}
+
+bool WatchManager::matchesWatchFilePattern(const QString &fileName, const QString &watchFilePattern) {
+    QString normalized = watchFilePattern.trimmed();
+    if (normalized.isEmpty()) {
+        return true;
+    }
+    normalized.replace(',', ';');
+    const QStringList patterns = normalized.split(';', Qt::SkipEmptyParts);
+    for (const QString &rawPattern : patterns) {
+        const QString pattern = rawPattern.trimmed();
+        if (pattern.isEmpty() || pattern.contains('/') || pattern.contains('\\')) {
+            continue;
+        }
+        const QRegularExpression regex(
+            QRegularExpression::wildcardToRegularExpression(pattern),
+            QRegularExpression::CaseInsensitiveOption
+        );
+        if (regex.match(fileName).hasMatch()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool WatchManager::supportedFileType(const QString &fileName, const QString &fileType) {

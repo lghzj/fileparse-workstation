@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QFileInfo>
 #include <QJsonObject>
+#include <QMetaType>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QString>
@@ -18,11 +19,14 @@ struct WorkstationSettings {
 struct UploadRequest {
     int deviceId = 0;
     QString localPath;
+    QString uploadPath;
     QString fileName;
     qint64 fileSize = 0;
     QDateTime fileMtime;
     QString fileHash;
 };
+
+Q_DECLARE_METATYPE(UploadRequest)
 
 class ApiClient final : public QObject {
     Q_OBJECT

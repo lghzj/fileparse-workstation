@@ -2,6 +2,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMetaType>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -33,6 +34,7 @@ struct DeviceConfig {
     QString deviceCode;
     QString deviceName;
     QString watchPath;
+    QString watchFilePattern;
     QString fileType;
     int stableSeconds = 2;
     bool enabled = true;
@@ -45,6 +47,8 @@ struct DeviceConfig {
     static DeviceConfig fromJson(const QJsonObject &object);
     bool isValid(QString *errorMessage = nullptr) const;
 };
+
+Q_DECLARE_METATYPE(DeviceConfig)
 
 struct RuntimeConfig {
     int configVersion = 0;

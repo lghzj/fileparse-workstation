@@ -29,15 +29,23 @@ QJsonObject SystemDiagnostics::run(const WorkstationSettings &settings, const Ru
     checks.append(settings.token.trimmed().isEmpty() ? fail("token", "missing") : ok("token", "configured"));
 
     if (runtimeConfig.devices.isEmpty()) {
-        checks.append(fail("watchPath", "未加载监听目录配置"));
+        checks.append(fail("watchPath", "未加载监听路径配置"));
     } else {
         for (const DeviceConfig &device : runtimeConfig.devices) {
             if (!device.enabled) {
                 continue;
             }
             const QFileInfo info(device.watchPath);
-            if (!info.exists() || !info.isDir()) {
+            if (!info.exists()) {
                 checks.append(fail("watchPath", "not found: " + device.watchPath));
+                continue;
+            }
+            if (info.isFile()) {
+                checks.append(info.isReadable() ? ok("watchPath", device.watchPath) : fail("watchPath", "not readable: " + device.watchPath));
+                continue;
+            }
+            if (!info.isDir()) {
+                checks.append(fail("watchPath", "not a file or directory: " + device.watchPath));
                 continue;
             }
             const QDir dir(device.watchPath);

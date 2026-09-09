@@ -2,8 +2,8 @@
 
 #include "system/FileHasher.h"
 
-#include <QDateTime>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -18,42 +18,57 @@
 #include <QStandardPaths>
 #include <QUuid>
 
-AccessDeltaCapture::AccessDeltaCapture(LocalDatabase *database, QObject *parent)
-    : QObject(parent), database_(database) {}
+AccessDeltaCapture::AccessDeltaCapture(QObject *parent)
+    : QObject(parent), database_("workstation_access_capture") {}
 
 void AccessDeltaCapture::captureFile(const DeviceConfig &device, const QString &path) {
-    if (database_ == nullptr) {
-        emit logMessage("access capture skipped: local database is unavailable");
+    QString errorMessage;
+    if (!database_.open(&errorMessage)) {
+        emit logMessage("access capture skipped: local database is unavailable: " + errorMessage);
         return;
     }
 
-    QString errorMessage;
+    const QFileInfo sourceInfo(path);
+    UploadRequest convertingRequest;
+    convertingRequest.deviceId = device.deviceId;
+    convertingRequest.localPath = sourceInfo.absoluteFilePath();
+    convertingRequest.uploadPath = sourceInfo.absoluteFilePath();
+    convertingRequest.fileName = sourceInfo.fileName();
+    convertingRequest.fileSize = sourceInfo.size();
+    convertingRequest.fileMtime = sourceInfo.lastModified();
+    convertingRequest.fileHash = QString();
+    emit conversionStarted(convertingRequest);
+
     const QString snapshotPath = snapshotFile(path, &errorMessage);
     if (!errorMessage.isEmpty()) {
         emit logMessage("access snapshot failed: " + errorMessage);
+        emit conversionFailed(convertingRequest, errorMessage);
         return;
     }
-
     const QVector<TableDelta> deltas = readDeltas(device, path, snapshotPath, &errorMessage);
     QFile::remove(snapshotPath);
     if (!errorMessage.isEmpty()) {
         emit logMessage("access capture failed: " + errorMessage);
+        emit conversionFailed(convertingRequest, errorMessage);
         return;
     }
     if (deltas.isEmpty()) {
-        emit logMessage("access capture found no new rows: " + QFileInfo(path).fileName());
+        const QString message = "access capture found no new rows: " + sourceInfo.fileName();
+        emit logMessage(message);
+        emit conversionSkipped(convertingRequest, "没有新增数据");
         return;
     }
 
     const QString deltaPath = writeDeltaJson(device, path, deltas, &errorMessage);
     if (!errorMessage.isEmpty()) {
         emit logMessage("access delta write failed: " + errorMessage);
+        emit conversionFailed(convertingRequest, errorMessage);
         return;
     }
 
     for (const TableDelta &delta : deltas) {
         const QString monitorColumn = delta.rule.monitorColumns.first();
-        if (!database_->markAccessBatchPending(
+        if (!database_.markAccessBatchPending(
                 deltaPath,
                 device.deviceId,
                 QFileInfo(path).absoluteFilePath(),
@@ -63,6 +78,7 @@ void AccessDeltaCapture::captureFile(const DeviceConfig &device, const QString &
                 delta.cursorTo,
                 &errorMessage)) {
             emit logMessage("access batch state failed: " + errorMessage);
+            emit conversionFailed(convertingRequest, errorMessage);
             return;
         }
     }
@@ -71,18 +87,20 @@ void AccessDeltaCapture::captureFile(const DeviceConfig &device, const QString &
     const QString hash = FileHasher::sha256(deltaPath, &hashError);
     if (!hashError.isEmpty()) {
         emit logMessage("access delta hash failed: " + hashError);
+        emit conversionFailed(convertingRequest, hashError);
         return;
     }
 
     QFileInfo deltaInfo(deltaPath);
     UploadRequest request;
     request.deviceId = device.deviceId;
-    request.localPath = deltaInfo.absoluteFilePath();
-    request.fileName = deltaInfo.fileName();
+    request.localPath = sourceInfo.absoluteFilePath();
+    request.uploadPath = deltaInfo.absoluteFilePath();
+    request.fileName = sourceInfo.fileName();
     request.fileSize = deltaInfo.size();
     request.fileMtime = deltaInfo.lastModified();
     request.fileHash = hash;
-    emit logMessage(QString("access delta ready: %1 table(s) file=%2").arg(deltas.size()).arg(request.fileName));
+    emit logMessage(QString("access delta ready: %1 table(s) source=%2 delta=%3").arg(deltas.size()).arg(request.fileName, deltaInfo.fileName()));
     emit uploadReady(request);
 }
 
@@ -187,13 +205,13 @@ AccessDeltaCapture::TableDelta AccessDeltaCapture::readTableDelta(QSqlDatabase &
     const QByteArray schemaBytes = QJsonDocument(delta.schema).toJson(QJsonDocument::Compact);
     const QString schemaHash = "sha256:" + QString::fromLatin1(QCryptographicHash::hash(schemaBytes, QCryptographicHash::Sha256).toHex());
     delta.schemaHash = schemaHash;
-    if (!database_->saveAccessSchemaCache(device.deviceId, QFileInfo(sourcePath).absoluteFilePath(), rule.tableName, schemaHash, QString::fromUtf8(schemaBytes), errorMessage)) {
+    if (!database_.saveAccessSchemaCache(device.deviceId, QFileInfo(sourcePath).absoluteFilePath(), rule.tableName, schemaHash, QString::fromUtf8(schemaBytes), errorMessage)) {
         return delta;
     }
 
     const QString monitorColumn = rule.monitorColumns.first();
     AccessCursorState cursor;
-    if (!database_->accessCursor(device.deviceId, QFileInfo(sourcePath).absoluteFilePath(), rule.tableName, monitorColumn, &cursor, errorMessage)) {
+    if (!database_.accessCursor(device.deviceId, QFileInfo(sourcePath).absoluteFilePath(), rule.tableName, monitorColumn, &cursor, errorMessage)) {
         return delta;
     }
     delta.cursorFrom = cursor.lastCursorValue;
@@ -203,7 +221,7 @@ AccessDeltaCapture::TableDelta AccessDeltaCapture::readTableDelta(QSqlDatabase &
         if (!errorMessage->isEmpty()) {
             return delta;
         }
-        if (!latestCursor.isEmpty() && !database_->setAccessCursor(device.deviceId, QFileInfo(sourcePath).absoluteFilePath(), rule.tableName, monitorColumn, latestCursor, errorMessage)) {
+        if (!latestCursor.isEmpty() && !database_.setAccessCursor(device.deviceId, QFileInfo(sourcePath).absoluteFilePath(), rule.tableName, monitorColumn, latestCursor, errorMessage)) {
             return delta;
         }
         emit logMessage(QString("access first run initialized cursor table=%1 column=%2 value=%3").arg(rule.tableName, monitorColumn, latestCursor));
@@ -315,7 +333,8 @@ QString AccessDeltaCapture::writeDeltaJson(const DeviceConfig &device, const QSt
         *errorMessage = "cannot write access delta json: " + outPath;
         return {};
     }
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Compact);
+    file.write(payload);
     file.close();
     return outPath;
 }
