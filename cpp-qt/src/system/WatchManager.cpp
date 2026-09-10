@@ -22,9 +22,11 @@ void WatchManager::setRuntimeConfig(const RuntimeConfig &config) {
     emit logMessage(QString("watch config loaded: %1 item(s)").arg(config_.devices.size()));
 }
 
-void WatchManager::start() {
+void WatchManager::start(bool baselineExisting) {
     if (!timer_.isActive()) {
-        baselineExistingFiles();
+        if (baselineExisting) {
+            baselineExistingFiles();
+        }
         timer_.start();
         emit logMessage("watcher started");
     }
@@ -33,6 +35,13 @@ void WatchManager::start() {
 void WatchManager::stop() {
     timer_.stop();
     emit logMessage("watcher stopped");
+}
+
+void WatchManager::resetState() {
+    snapshots_.clear();
+    emitted_.clear();
+    scanning_ = false;
+    emit logMessage("watcher state reset");
 }
 
 void WatchManager::scanOnce() {
@@ -179,7 +188,16 @@ void WatchManager::inspectFile(const DeviceConfig &device, const QString &path) 
     }
 
     if (device.fileType.compare("access", Qt::CaseInsensitive) == 0) {
+        UploadRequest request;
+        request.deviceId = device.deviceId;
+        request.localPath = fileInfo.absoluteFilePath();
+        request.uploadPath = fileInfo.absoluteFilePath();
+        request.fileName = fileInfo.fileName();
+        request.fileSize = size;
+        request.fileMtime = fileInfo.lastModified();
+        request.fileHash = QString();
         emitted_.insert(key);
+        emit accessConversionStarted(request);
         emit accessFileReady(device, fileInfo.absoluteFilePath());
         return;
     }

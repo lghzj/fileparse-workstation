@@ -217,7 +217,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(&uploadManager_, &UploadManager::logMessage, this, &MainWindow::appendLog);
     connect(&uploadManager_, &UploadManager::recordsChanged, this, &MainWindow::refreshUploadTable);
     connect(accessDeltaCapture_, &AccessDeltaCapture::logMessage, this, &MainWindow::appendLog);
-    connect(accessDeltaCapture_, &AccessDeltaCapture::conversionStarted, this, [this](const UploadRequest &request) {
+    connect(&watchManager_, &WatchManager::accessConversionStarted, this, [this](const UploadRequest &request) {
         QString dbError;
         if (!database_.recordAccessConverting(request, &dbError)) {
             appendLog("record access converting failed: " + dbError);
@@ -1325,10 +1325,12 @@ void MainWindow::resetLocalStorage() {
         return;
     }
 
+    const bool wasRunning = workstationRunning_;
     watchManager_.stop();
     webSocketClient_.stop();
     uploadManager_.stopRetryTimer();
     workstationRunning_ = false;
+    watchManager_.resetState();
 
     if (accessDeltaCapture_ != nullptr) {
         QMetaObject::invokeMethod(accessDeltaCapture_, "closeDatabase", Qt::BlockingQueuedConnection);
@@ -1367,6 +1369,11 @@ void MainWindow::resetLocalStorage() {
         return;
     }
     uploadManager_.startRetryTimer();
+    if (wasRunning) {
+        webSocketClient_.start();
+        watchManager_.start(false);
+        workstationRunning_ = true;
+    }
     if (logEdit_ != nullptr) {
         logEdit_->clear();
     }

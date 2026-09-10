@@ -16,11 +16,13 @@ public:
     explicit WatchManager(QObject *parent = nullptr);
 
     void setRuntimeConfig(const RuntimeConfig &config);
-    void start();
+    void start(bool baselineExisting = true);
     void stop();
+    void resetState();
 
 signals:
     void fileReady(const UploadRequest &request);
+    void accessConversionStarted(const UploadRequest &request);
     void accessFileReady(const DeviceConfig &device, const QString &path);
     void logMessage(const QString &message);
 
