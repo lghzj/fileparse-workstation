@@ -16,6 +16,7 @@ void WatchManager::setRuntimeConfig(const RuntimeConfig &config) {
     config_ = config;
     snapshots_.clear();
     emitted_.clear();
+    accessPending_.clear();
     if (timer_.isActive()) {
         baselineExistingFiles();
     }
@@ -40,6 +41,7 @@ void WatchManager::stop() {
 void WatchManager::resetState() {
     snapshots_.clear();
     emitted_.clear();
+    accessPending_.clear();
     scanning_ = false;
     emit logMessage("watcher state reset");
 }
@@ -172,6 +174,21 @@ void WatchManager::inspectFile(const DeviceConfig &device, const QString &path) 
         return;
     }
 
+    const bool isAccessFile = device.fileType.compare("access", Qt::CaseInsensitive) == 0;
+    const QString accessPendingKey = QString("%1|%2").arg(device.deviceId).arg(fileInfo.absoluteFilePath());
+    if (isAccessFile && !accessPending_.contains(accessPendingKey)) {
+        UploadRequest request;
+        request.deviceId = device.deviceId;
+        request.localPath = fileInfo.absoluteFilePath();
+        request.uploadPath = fileInfo.absoluteFilePath();
+        request.fileName = fileInfo.fileName();
+        request.fileSize = fileInfo.size();
+        request.fileMtime = fileInfo.lastModified();
+        request.fileHash = QString();
+        accessPending_.insert(accessPendingKey);
+        emit accessConversionStarted(request);
+    }
+
     Snapshot &snapshot = snapshots_[key];
     const qint64 size = fileInfo.size();
     const qint64 mtimeMs = fileInfo.lastModified().toMSecsSinceEpoch();
@@ -187,17 +204,9 @@ void WatchManager::inspectFile(const DeviceConfig &device, const QString &path) 
         return;
     }
 
-    if (device.fileType.compare("access", Qt::CaseInsensitive) == 0) {
-        UploadRequest request;
-        request.deviceId = device.deviceId;
-        request.localPath = fileInfo.absoluteFilePath();
-        request.uploadPath = fileInfo.absoluteFilePath();
-        request.fileName = fileInfo.fileName();
-        request.fileSize = size;
-        request.fileMtime = fileInfo.lastModified();
-        request.fileHash = QString();
+    if (isAccessFile) {
         emitted_.insert(key);
-        emit accessConversionStarted(request);
+        accessPending_.remove(accessPendingKey);
         emit accessFileReady(device, fileInfo.absoluteFilePath());
         return;
     }

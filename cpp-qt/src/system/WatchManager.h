@@ -46,6 +46,7 @@ private:
     RuntimeConfig config_;
     QHash<QString, Snapshot> snapshots_;
     QSet<QString> emitted_;
+    QSet<QString> accessPending_;
     bool scanning_ = false;
     int maxFilesPerScan_ = 1000;
 };

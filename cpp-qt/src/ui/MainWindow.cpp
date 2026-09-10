@@ -614,7 +614,7 @@ QWidget *MainWindow::buildStatusTab() {
     deviceLayout->setContentsMargins(0, 6, 0, 0);
     deviceLayout->setSpacing(6);
     deviceTable_ = new QTableWidget(0, 5, deviceGroup);
-    deviceTable_->setHorizontalHeaderLabels({"设备", "目录", "监听文件", "类型", "状态"});
+    deviceTable_->setHorizontalHeaderLabels({"设备", "监听文件/目录", "监听文件", "类型", "启用"});
     configureTable(deviceTable_);
     deviceTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
     deviceTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -659,12 +659,11 @@ QWidget *MainWindow::buildStatusTab() {
     recentHeader->addLayout(actions);
     recentLayout->addLayout(recentHeader);
 
-    uploadTable_ = new QTableWidget(0, 6, recentGroup);
-    uploadTable_->setHorizontalHeaderLabels({"目录", "文件名", "大小", "状态", "上传时间", "操作"});
+    uploadTable_ = new QTableWidget(0, 5, recentGroup);
+    uploadTable_->setHorizontalHeaderLabels({"目录", "文件名", "大小", "状态", "上传时间"});
     configureTable(uploadTable_);
     uploadTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
     uploadTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
-    uploadTable_->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
     uploadTable_->setColumnWidth(0, 360);
     uploadTable_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Interactive);
     uploadTable_->setColumnWidth(1, 320);
@@ -1258,10 +1257,13 @@ void MainWindow::refreshUploadTable() {
             formattedBytes(upload.request.fileSize),
             translatedStatus(upload.status),
             upload.updatedAt,
-            upload.lastErrorMessage.isEmpty() ? (upload.status.contains("failed", Qt::CaseInsensitive) ? "重试" : "-") : upload.lastErrorMessage.left(36),
         };
         for (int column = 0; column < values.size(); ++column) {
             auto *item = new QTableWidgetItem(values[column]);
+            const QString tooltip = column == 3 && !upload.lastErrorMessage.isEmpty() ? upload.lastErrorMessage : values[column];
+            if (!tooltip.isEmpty()) {
+                item->setToolTip(tooltip);
+            }
             if (column == 0) {
                 item->setData(Qt::UserRole, QVariant::fromValue(upload.request.localPath));
                 item->setData(Qt::UserRole + 1, upload.request.deviceId);
