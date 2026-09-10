@@ -53,7 +53,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: NetStarWorkstation-windows-x64
-          path: cpp-qt/dist/windows/NetStarWorkstation-windows-x64.zip
+          path: cpp-qt/dist/windows/NetStarWorkstation/**
           if-no-files-found: error
 
   build-win7:
@@ -98,5 +98,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: NetStarWorkstation-Win7-x64
-          path: cpp-qt/dist/windows-win7/NetStarWorkstation-Win7-x64.zip
+          path: cpp-qt/dist/windows-win7/NetStarWorkstation-Win7/**
           if-no-files-found: error
