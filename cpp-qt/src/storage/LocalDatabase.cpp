@@ -130,7 +130,7 @@ bool LocalDatabase::open(QString *errorMessage) {
 bool LocalDatabase::recordUpload(const UploadRequest &request, const QString &status, QString *errorMessage) {
     if (status != "converting") {
         QSqlQuery updateConverting(db_);
-        updateConverting.prepare("UPDATE upload_records SET file_name=?, upload_path=?, file_size=?, file_mtime=?, file_hash=?, "
+        updateConverting.prepare("UPDATE upload_records SET file_name=?, upload_path=?, file_size=?, file_mtime=?, file_hash=COALESCE(NULLIF(?, ''), file_hash), "
                                  "status=?, data_no=NULL, last_error_message=NULL, updated_at=CURRENT_TIMESTAMP "
                                  "WHERE device_id=? AND local_path=? AND status='converting'");
         updateConverting.addBindValue(request.fileName);
@@ -213,7 +213,7 @@ bool LocalDatabase::markUploaded(const UploadRequest &request, const QString &da
 
 bool LocalDatabase::markUploadFailed(const UploadRequest &request, const QString &message, QString *errorMessage) {
     QSqlQuery updateConverting(db_);
-    updateConverting.prepare("UPDATE upload_records SET file_name=?, upload_path=?, file_size=?, file_mtime=?, file_hash=?, "
+    updateConverting.prepare("UPDATE upload_records SET file_name=?, upload_path=?, file_size=?, file_mtime=?, file_hash=COALESCE(NULLIF(?, ''), file_hash), "
                              "status='upload_failed', retry_count=retry_count + 1, last_error_message=?, updated_at=CURRENT_TIMESTAMP "
                              "WHERE device_id=? AND local_path=? AND status='converting'");
     updateConverting.addBindValue(request.fileName);
@@ -241,6 +241,50 @@ bool LocalDatabase::markUploadFailed(const UploadRequest &request, const QString
                   "file_name=excluded.file_name, upload_path=excluded.upload_path, "
                   "last_error_message=excluded.last_error_message, updated_at=CURRENT_TIMESTAMP");
     bindRequest(&query, request);
+    query.addBindValue(message.left(2000));
+    if (!query.exec()) {
+        *errorMessage = query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool LocalDatabase::markConversionFailed(const UploadRequest &request, const QString &message, QString *errorMessage) {
+    QSqlQuery updateConverting(db_);
+    updateConverting.prepare("UPDATE upload_records SET file_name=?, upload_path=?, file_size=?, file_mtime=?, file_hash=COALESCE(NULLIF(?, ''), file_hash), "
+                             "status='conversion_failed', last_error_message=?, updated_at=CURRENT_TIMESTAMP "
+                             "WHERE device_id=? AND local_path=? AND status='converting'");
+    updateConverting.addBindValue(request.fileName);
+    updateConverting.addBindValue(request.uploadPath.trimmed().isEmpty() ? request.localPath : request.uploadPath);
+    updateConverting.addBindValue(request.fileSize);
+    updateConverting.addBindValue(request.fileMtime.toUTC().toString(Qt::ISODateWithMs));
+    updateConverting.addBindValue(request.fileHash.isNull() ? QString("") : request.fileHash);
+    updateConverting.addBindValue(message.left(2000));
+    updateConverting.addBindValue(request.deviceId);
+    updateConverting.addBindValue(request.localPath);
+    if (!updateConverting.exec()) {
+        *errorMessage = updateConverting.lastError().text();
+        return false;
+    }
+    if (updateConverting.numRowsAffected() > 0) {
+        return true;
+    }
+
+    QSqlQuery query(db_);
+    query.prepare("INSERT INTO upload_records "
+                  "(device_id, local_path, file_name, upload_path, file_size, file_mtime, file_hash, status, retry_count, last_error_message, updated_at) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, 'conversion_failed', 0, ?, CURRENT_TIMESTAMP) "
+                  "ON CONFLICT(device_id, local_path, file_size, file_mtime) "
+                  "DO UPDATE SET status='conversion_failed', file_name=excluded.file_name, upload_path=excluded.upload_path, "
+                  "file_hash=COALESCE(NULLIF(excluded.file_hash, ''), upload_records.file_hash), "
+                  "last_error_message=excluded.last_error_message, updated_at=CURRENT_TIMESTAMP");
+    query.addBindValue(request.deviceId);
+    query.addBindValue(request.localPath);
+    query.addBindValue(request.fileName);
+    query.addBindValue(request.uploadPath.trimmed().isEmpty() ? request.localPath : request.uploadPath);
+    query.addBindValue(request.fileSize);
+    query.addBindValue(request.fileMtime.toUTC().toString(Qt::ISODateWithMs));
+    query.addBindValue(request.fileHash.isNull() ? QString("") : request.fileHash);
     query.addBindValue(message.left(2000));
     if (!query.exec()) {
         *errorMessage = query.lastError().text();
@@ -497,7 +541,7 @@ bool LocalDatabase::uploadByDataNo(const QString &dataNo, StoredUpload *upload, 
 
 int LocalDatabase::clearFailedUploads(QString *errorMessage) {
     QSqlQuery query(db_);
-    if (!query.exec("DELETE FROM upload_records WHERE status IN ('upload_failed', 'parse_failed')")) {
+    if (!query.exec("DELETE FROM upload_records WHERE status IN ('upload_failed', 'parse_failed', 'conversion_failed')")) {
         *errorMessage = query.lastError().text();
         return -1;
     }

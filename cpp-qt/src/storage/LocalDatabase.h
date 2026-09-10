@@ -38,6 +38,7 @@ public:
     bool recordAccessDeltaUpload(const UploadRequest &request, const QString &status, QString *errorMessage);
     bool markUploaded(const UploadRequest &request, const QString &dataNo, QString *errorMessage);
     bool markUploadFailed(const UploadRequest &request, const QString &message, QString *errorMessage);
+    bool markConversionFailed(const UploadRequest &request, const QString &message, QString *errorMessage);
     bool markTaskResult(const QJsonObject &payload, QString *errorMessage);
     bool accessCursor(int deviceId, const QString &accessFilePath, const QString &tableName, const QString &monitorColumn, AccessCursorState *state, QString *errorMessage);
     bool saveAccessSchemaCache(int deviceId, const QString &accessFilePath, const QString &tableName, const QString &schemaHash, const QString &columnsJson, QString *errorMessage);

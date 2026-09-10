@@ -177,6 +177,13 @@ void WatchManager::inspectFile(const DeviceConfig &device, const QString &path) 
     const bool isAccessFile = device.fileType.compare("access", Qt::CaseInsensitive) == 0;
     const QString accessPendingKey = QString("%1|%2").arg(device.deviceId).arg(fileInfo.absoluteFilePath());
     if (isAccessFile && !accessPending_.contains(accessPendingKey)) {
+        QString hashError;
+        const QString hash = FileHasher::sha256(path, &hashError);
+        if (!hashError.isEmpty()) {
+            emit logMessage(hashError);
+            return;
+        }
+
         UploadRequest request;
         request.deviceId = device.deviceId;
         request.localPath = fileInfo.absoluteFilePath();
@@ -184,7 +191,7 @@ void WatchManager::inspectFile(const DeviceConfig &device, const QString &path) 
         request.fileName = fileInfo.fileName();
         request.fileSize = fileInfo.size();
         request.fileMtime = fileInfo.lastModified();
-        request.fileHash = QString();
+        request.fileHash = hash;
         accessPending_.insert(accessPendingKey);
         emit accessConversionStarted(request);
     }

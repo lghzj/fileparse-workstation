@@ -221,13 +221,15 @@ MainWindow::MainWindow(QWidget *parent)
         QString dbError;
         if (!database_.recordAccessConverting(request, &dbError)) {
             appendLog("record access converting failed: " + dbError);
+            refreshUploadTable();
+            return;
         }
         appendLog("access converting: " + request.fileName);
         refreshUploadTable();
     });
     connect(accessDeltaCapture_, &AccessDeltaCapture::conversionFailed, this, [this](const UploadRequest &request, const QString &message) {
         QString dbError;
-        if (!database_.markUploadFailed(request, message, &dbError)) {
+        if (!database_.markConversionFailed(request, message, &dbError)) {
             appendLog("record access conversion failed status failed: " + dbError);
         }
         refreshUploadTable();
@@ -613,18 +615,16 @@ QWidget *MainWindow::buildStatusTab() {
     auto *deviceLayout = new QVBoxLayout(deviceGroup);
     deviceLayout->setContentsMargins(0, 6, 0, 0);
     deviceLayout->setSpacing(6);
-    deviceTable_ = new QTableWidget(0, 5, deviceGroup);
-    deviceTable_->setHorizontalHeaderLabels({"设备", "监听文件/目录", "监听文件", "类型", "启用"});
+    deviceTable_ = new QTableWidget(0, 4, deviceGroup);
+    deviceTable_->setHorizontalHeaderLabels({"设备", "监听文件/目录", "类型", "启用"});
     configureTable(deviceTable_);
     deviceTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
     deviceTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     deviceTable_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
     deviceTable_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Interactive);
-    deviceTable_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Interactive);
     deviceTable_->setColumnWidth(0, 180);
-    deviceTable_->setColumnWidth(2, 140);
+    deviceTable_->setColumnWidth(2, 100);
     deviceTable_->setColumnWidth(3, 100);
-    deviceTable_->setColumnWidth(4, 100);
     deviceTable_->setMinimumHeight(130);
     deviceTable_->setMaximumHeight(190);
     deviceTable_->clearSelection();
@@ -1054,11 +1054,10 @@ void MainWindow::refreshDeviceTable() {
     for (int row = 0; row < runtimeConfig_.devices.size(); ++row) {
         const DeviceConfig &device = runtimeConfig_.devices[row];
         QStringList values;
-        if (deviceTable_->columnCount() == 5) {
+        if (deviceTable_->columnCount() == 4) {
             values = QStringList({
                 device.deviceName.isEmpty() ? QString::number(device.deviceId) : device.deviceName,
-                device.watchPath,
-                device.watchFilePattern.isEmpty() ? "全部" : device.watchFilePattern,
+                device.watchFilePattern.isEmpty() ? device.watchPath : QString("%1 (%2)").arg(device.watchPath, device.watchFilePattern),
                 device.fileType,
                 device.enabled ? "是" : "否",
             });
@@ -1454,6 +1453,9 @@ QString MainWindow::translatedStatus(const QString &status) {
     }
     if (normalized == "no_new_rows") {
         return "无新增";
+    }
+    if (normalized == "conversion_failed") {
+        return "转化失败";
     }
     if (normalized == "success" || normalized == "completed") {
         return "解析完成";

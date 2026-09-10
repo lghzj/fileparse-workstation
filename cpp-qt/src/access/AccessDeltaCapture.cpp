@@ -40,7 +40,11 @@ void AccessDeltaCapture::captureFile(const DeviceConfig &device, const QString &
     convertingRequest.fileName = sourceInfo.fileName();
     convertingRequest.fileSize = sourceInfo.size();
     convertingRequest.fileMtime = sourceInfo.lastModified();
-    convertingRequest.fileHash = QString();
+    QString sourceHashError;
+    convertingRequest.fileHash = FileHasher::sha256(path, &sourceHashError);
+    if (!sourceHashError.isEmpty()) {
+        emit logMessage("access source hash failed: " + sourceHashError);
+    }
     emit conversionStarted(convertingRequest);
 
     const QString snapshotPath = snapshotFile(path, &errorMessage);
