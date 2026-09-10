@@ -119,6 +119,8 @@ void UploadManager::handleUploadSucceeded(const UploadRequest &request, const QJ
         dbError.clear();
         if (!database_->markTaskResult(payload, &dbError)) {
             emit logMessage("mark upload task result failed: " + dbError);
+        } else {
+            emit taskResultReady(payload);
         }
     }
     emit logMessage("upload ok: " + request.fileName);
@@ -152,6 +154,7 @@ void UploadManager::handleDataStatusesReceived(const QJsonArray &statuses) {
         }
         changed = true;
         emit logMessage("parse status reconciled: " + status.value("dataNo").toString());
+        emit taskResultReady(status);
     }
     if (changed) {
         emit recordsChanged();

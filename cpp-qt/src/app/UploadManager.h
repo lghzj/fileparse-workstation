@@ -23,6 +23,7 @@ public:
 signals:
     void logMessage(const QString &message);
     void recordsChanged();
+    void taskResultReady(const QJsonObject &payload);
 
 private:
     void handleUploadSucceeded(const UploadRequest &request, const QJsonObject &payload);

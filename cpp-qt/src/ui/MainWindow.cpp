@@ -216,6 +216,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(&uploadManager_, &UploadManager::logMessage, this, &MainWindow::appendLog);
     connect(&uploadManager_, &UploadManager::recordsChanged, this, &MainWindow::refreshUploadTable);
+    connect(&uploadManager_, &UploadManager::taskResultReady, this, &MainWindow::showTaskResultNotice);
     connect(accessDeltaCapture_, &AccessDeltaCapture::logMessage, this, &MainWindow::appendLog);
     connect(&watchManager_, &WatchManager::accessConversionStarted, this, [this](const UploadRequest &request) {
         QString dbError;
