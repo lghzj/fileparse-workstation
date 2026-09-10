@@ -1,6 +1,8 @@
 #include "UploadManager.h"
 
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonObject>
 
 UploadManager::UploadManager(ApiClient *apiClient, LocalDatabase *database, QObject *parent)
     : QObject(parent), apiClient_(apiClient), database_(database) {
@@ -10,10 +12,12 @@ UploadManager::UploadManager(ApiClient *apiClient, LocalDatabase *database, QObj
 
     connect(apiClient_, &ApiClient::uploadSucceeded, this, &UploadManager::handleUploadSucceeded);
     connect(apiClient_, &ApiClient::uploadFailed, this, &UploadManager::handleUploadFailed);
+    connect(apiClient_, &ApiClient::dataStatusesReceived, this, &UploadManager::handleDataStatusesReceived);
 }
 
 void UploadManager::startRetryTimer() {
     if (!retryTimer_.isActive()) {
+        retryFailedUploads();
         retryTimer_.start();
     }
 }
@@ -64,6 +68,8 @@ void UploadManager::retryFailedUploads() {
         return;
     }
 
+    reconcilePendingParseUploads();
+
     QString dbError;
     const QVector<StoredUpload> uploads = database_->retryableUploads(5, &dbError);
     if (!dbError.isEmpty()) {
@@ -81,11 +87,39 @@ void UploadManager::retryFailedUploads() {
     }
 }
 
+void UploadManager::reconcilePendingParseUploads() {
+    QString dbError;
+    const QVector<StoredUpload> uploads = database_->pendingParseUploads(50, &dbError);
+    if (!dbError.isEmpty()) {
+        emit logMessage("load pending parse uploads failed: " + dbError);
+        return;
+    }
+    if (uploads.isEmpty()) {
+        return;
+    }
+
+    QStringList dataNos;
+    for (const StoredUpload &upload : uploads) {
+        const QString dataNo = upload.dataNo.trimmed();
+        if (!dataNo.isEmpty()) {
+            dataNos.append(dataNo);
+        }
+    }
+    apiClient_->queryDataStatuses(dataNos);
+}
+
 void UploadManager::handleUploadSucceeded(const UploadRequest &request, const QJsonObject &payload) {
     QString dbError;
     const QString dataNo = payload.value("dataNo").toString();
     if (!database_->markUploaded(request, dataNo, &dbError)) {
         emit logMessage("mark upload success failed: " + dbError);
+    }
+    const QString status = payload.value("status").toString().trimmed().toLower();
+    if (status == "success" || status == "failed") {
+        dbError.clear();
+        if (!database_->markTaskResult(payload, &dbError)) {
+            emit logMessage("mark upload task result failed: " + dbError);
+        }
     }
     emit logMessage("upload ok: " + request.fileName);
     emit recordsChanged();
@@ -97,6 +131,31 @@ void UploadManager::handleUploadFailed(const UploadRequest &request, const QStri
         emit logMessage("mark upload failed failed: " + dbError);
     }
     emit recordsChanged();
+}
+
+void UploadManager::handleDataStatusesReceived(const QJsonArray &statuses) {
+    bool changed = false;
+    for (const QJsonValue &value : statuses) {
+        if (!value.isObject()) {
+            continue;
+        }
+        const QJsonObject status = value.toObject();
+        const QString remoteStatus = status.value("status").toString().trimmed().toLower();
+        if (remoteStatus != "success" && remoteStatus != "failed") {
+            continue;
+        }
+
+        QString dbError;
+        if (!database_->markTaskResult(status, &dbError)) {
+            emit logMessage("mark reconciled task result failed: " + dbError);
+            continue;
+        }
+        changed = true;
+        emit logMessage("parse status reconciled: " + status.value("dataNo").toString());
+    }
+    if (changed) {
+        emit recordsChanged();
+    }
 }
 
 bool UploadManager::canUpload(const UploadRequest &request, QString *message) const {

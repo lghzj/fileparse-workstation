@@ -109,6 +109,9 @@ class WorkstationConfig:
                 errors.append(f"{prefix}.watchPath is required")
             if not item.get("fileType"):
                 errors.append(f"{prefix}.fileType is required")
+            watch_file_pattern = str(item.get("watchFilePattern") or "").strip()
+            if "/" in watch_file_pattern or "\\" in watch_file_pattern:
+                errors.append(f"{prefix}.watchFilePattern must be a file name or wildcard without path separators")
             if int(item.get("stableSeconds") or 2) <= 0:
                 errors.append(f"{prefix}.stableSeconds must be greater than 0")
             if int(item.get("maxDepth") or 0) < 0:

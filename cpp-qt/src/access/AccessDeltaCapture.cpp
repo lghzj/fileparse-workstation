@@ -21,6 +21,10 @@
 AccessDeltaCapture::AccessDeltaCapture(QObject *parent)
     : QObject(parent), database_("workstation_access_capture") {}
 
+void AccessDeltaCapture::closeDatabase() {
+    database_.close();
+}
+
 void AccessDeltaCapture::captureFile(const DeviceConfig &device, const QString &path) {
     QString errorMessage;
     if (!database_.open(&errorMessage)) {
@@ -215,6 +219,13 @@ AccessDeltaCapture::TableDelta AccessDeltaCapture::readTableDelta(QSqlDatabase &
         return delta;
     }
     delta.cursorFrom = cursor.lastCursorValue;
+
+    const QString cursorStatus = cursor.status.trimmed().toLower();
+    if ((cursorStatus == "pending_upload" || cursorStatus == "uploaded") && !cursor.pendingCursorValue.trimmed().isEmpty()) {
+        emit logMessage(QString("access capture skipped pending batch table=%1 column=%2 dataNo=%3")
+                            .arg(rule.tableName, monitorColumn, cursor.pendingDataNo));
+        return delta;
+    }
 
     if (!cursor.hasLastCursor && device.accessFirstRunPolicy == "start_from_latest") {
         const QString latestCursor = readMaxCursor(database, rule.tableName, monitorColumn, errorMessage);

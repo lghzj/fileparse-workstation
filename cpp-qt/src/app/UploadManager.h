@@ -3,6 +3,7 @@
 #include "api/ApiClient.h"
 #include "storage/LocalDatabase.h"
 
+#include <QJsonArray>
 #include <QObject>
 #include <QTimer>
 
@@ -17,6 +18,7 @@ public:
     void setUploadsEnabled(bool enabled);
     void submitUpload(const UploadRequest &request, bool manual = false);
     void retryFailedUploads();
+    void reconcilePendingParseUploads();
 
 signals:
     void logMessage(const QString &message);
@@ -25,6 +27,7 @@ signals:
 private:
     void handleUploadSucceeded(const UploadRequest &request, const QJsonObject &payload);
     void handleUploadFailed(const UploadRequest &request, const QString &message);
+    void handleDataStatusesReceived(const QJsonArray &statuses);
     bool canUpload(const UploadRequest &request, QString *message) const;
 
     ApiClient *apiClient_ = nullptr;

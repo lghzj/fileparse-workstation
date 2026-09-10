@@ -101,7 +101,7 @@ DeviceConfig DeviceConfig::fromJson(const QJsonObject &object) {
     config.recursive = object.value("recursive").toBool(false);
     config.maxDepth = object.value("maxDepth").toInt(0);
     config.accessMode = object.value("accessMode").toString("table_delta");
-    config.accessFirstRunPolicy = object.value("accessFirstRunPolicy").toString("export_all");
+    config.accessFirstRunPolicy = object.value("accessFirstRunPolicy").toString("start_from_latest");
     const QJsonArray accessRule = object.value("accessRule").toArray();
     for (const QJsonValue &value : accessRule) {
         if (value.isObject()) {

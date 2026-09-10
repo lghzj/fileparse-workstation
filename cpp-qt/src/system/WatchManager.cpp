@@ -16,12 +16,15 @@ void WatchManager::setRuntimeConfig(const RuntimeConfig &config) {
     config_ = config;
     snapshots_.clear();
     emitted_.clear();
+    if (timer_.isActive()) {
+        baselineExistingFiles();
+    }
     emit logMessage(QString("watch config loaded: %1 item(s)").arg(config_.devices.size()));
 }
 
 void WatchManager::start() {
     if (!timer_.isActive()) {
-        scanOnce();
+        baselineExistingFiles();
         timer_.start();
         emit logMessage("watcher started");
     }
@@ -62,6 +65,42 @@ void WatchManager::scanOnce() {
         }
     }
     scanning_ = false;
+}
+
+void WatchManager::baselineExistingFiles() {
+    for (const DeviceConfig &device : config_.devices) {
+        if (!device.enabled) {
+            continue;
+        }
+        const QFileInfo watchInfo(device.watchPath);
+        if (!watchInfo.exists()) {
+            continue;
+        }
+
+        QStringList files;
+        if (watchInfo.isFile()) {
+            files.append(watchInfo.absoluteFilePath());
+        } else if (watchInfo.isDir()) {
+            files = collectFiles(device, QDir(watchInfo.absoluteFilePath()));
+        }
+
+        for (const QString &path : files) {
+            const QFileInfo fileInfo(path);
+            if (!fileInfo.exists() || !fileInfo.isFile()) {
+                continue;
+            }
+            if (temporaryFile(fileInfo.fileName())) {
+                continue;
+            }
+            if (!matchesWatchFilePattern(fileInfo.fileName(), device.watchFilePattern)) {
+                continue;
+            }
+            if (!supportedFileType(fileInfo.fileName(), device.fileType)) {
+                continue;
+            }
+            emitted_.insert(emissionKey(device, fileInfo));
+        }
+    }
 }
 
 QStringList WatchManager::collectFiles(const DeviceConfig &device, const QDir &dir) const {
@@ -119,7 +158,7 @@ void WatchManager::inspectFile(const DeviceConfig &device, const QString &path) 
         return;
     }
 
-    const QString key = QString("%1|%2|%3").arg(device.deviceId).arg(path).arg(fileInfo.lastModified().toMSecsSinceEpoch());
+    const QString key = emissionKey(device, fileInfo);
     if (emitted_.contains(key)) {
         return;
     }
@@ -161,6 +200,13 @@ void WatchManager::inspectFile(const DeviceConfig &device, const QString &path) 
     request.fileHash = hash;
     emitted_.insert(key);
     emit fileReady(request);
+}
+
+QString WatchManager::emissionKey(const DeviceConfig &device, const QFileInfo &fileInfo) {
+    return QString("%1|%2|%3")
+        .arg(device.deviceId)
+        .arg(fileInfo.absoluteFilePath())
+        .arg(fileInfo.lastModified().toMSecsSinceEpoch());
 }
 
 bool WatchManager::matchesWatchFilePattern(const QString &fileName, const QString &watchFilePattern) {

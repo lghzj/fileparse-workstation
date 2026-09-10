@@ -21,6 +21,7 @@ public:
 
 public slots:
     void captureFile(const DeviceConfig &device, const QString &path);
+    void closeDatabase();
 
 signals:
     void conversionStarted(const UploadRequest &request);

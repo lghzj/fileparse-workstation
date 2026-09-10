@@ -19,14 +19,17 @@
 #include <QHBoxLayout>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QFile>
 #include <QLabel>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMessageBox>
+#include <QMetaObject>
 #include <QHeaderView>
 #include <QScrollArea>
 #include <QSizePolicy>
+#include <QStandardPaths>
 #include <QStyle>
 #include <QStatusBar>
 #include <QUrl>
@@ -132,6 +135,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(refreshUploadsButton_, &QPushButton::clicked, this, &MainWindow::refreshUploadTable);
     connect(retrySelectedButton_, &QPushButton::clicked, this, &MainWindow::retrySelectedUpload);
     connect(clearFailedButton_, &QPushButton::clicked, this, &MainWindow::clearFailedUploads);
+    connect(resetLocalStorageButton_, &QPushButton::clicked, this, &MainWindow::resetLocalStorage);
     connect(exportDiagnosticsButton_, &QPushButton::clicked, this, &MainWindow::exportDiagnostics);
 
     connect(&apiClient_, &ApiClient::registerSucceeded, this, [this](const QJsonObject &payload) {
@@ -254,12 +258,28 @@ MainWindow::MainWindow(QWidget *parent)
         appendLog("config received from websocket");
     });
     connect(&webSocketClient_, &WebSocketClient::taskResultReceived, this, [this](const QJsonObject &payload) {
+        const QString dataNo = payload.value("dataNo").toString().trimmed();
+        const QString remoteStatus = payload.value("status").toString().trimmed().toLower();
+        const bool terminalResult = !dataNo.isEmpty() && (remoteStatus == "success" || remoteStatus == "failed");
+
+        bool shouldShowNotice = false;
+        if (terminalResult) {
+            StoredUpload existingUpload;
+            QString lookupError;
+            if (database_.uploadByDataNo(dataNo, &existingUpload, &lookupError)) {
+                const QString existingStatus = existingUpload.status.trimmed().toLower();
+                shouldShowNotice = existingStatus != "parse_success" && existingStatus != "parse_failed";
+            }
+        }
+
         QString errorMessage;
         if (!database_.markTaskResult(payload, &errorMessage)) {
             appendLog("mark task result failed: " + errorMessage);
         }
-        appendLog("task result: " + QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact)));
-        showTaskResultNotice(payload);
+        if (shouldShowNotice) {
+            appendLog("task result: " + QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact)));
+            showTaskResultNotice(payload);
+        }
         refreshUploadTable();
     });
     connect(&webSocketClient_, &WebSocketClient::doctorRunRequested, this, [this](const QString &messageId, const QString &requestId, bool checkNetwork) {
@@ -629,11 +649,13 @@ QWidget *MainWindow::buildStatusTab() {
     refreshUploadsButton_ = new QPushButton("刷新", recentGroup);
     retrySelectedButton_ = new QPushButton("重试上传", recentGroup);
     clearFailedButton_ = new QPushButton("清除失败记录", recentGroup);
+    resetLocalStorageButton_ = new QPushButton("重置", recentGroup);
     uploadButton_ = new QPushButton("上传文件", recentGroup);
     actions->addWidget(uploadButton_);
     actions->addWidget(refreshUploadsButton_);
     actions->addWidget(retrySelectedButton_);
     actions->addWidget(clearFailedButton_);
+    actions->addWidget(resetLocalStorageButton_);
     recentHeader->addLayout(actions);
     recentLayout->addLayout(recentHeader);
 
@@ -1289,6 +1311,77 @@ void MainWindow::clearFailedUploads() {
     }
     appendLog(QString("cleared failed upload records: %1").arg(removed));
     refreshUploadTable();
+}
+
+void MainWindow::resetLocalStorage() {
+    const QMessageBox::StandardButton confirmed = QMessageBox::warning(
+        this,
+        "重置本地存储",
+        "将停止工作站，并删除本机解析记录、Access 增量文件、快照和日志。平台地址、MAC 和 Token 会保留。是否继续？",
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+    if (confirmed != QMessageBox::Yes) {
+        return;
+    }
+
+    watchManager_.stop();
+    webSocketClient_.stop();
+    uploadManager_.stopRetryTimer();
+    workstationRunning_ = false;
+
+    if (accessDeltaCapture_ != nullptr) {
+        QMetaObject::invokeMethod(accessDeltaCapture_, "closeDatabase", Qt::BlockingQueuedConnection);
+    }
+    database_.close();
+
+    const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (appDataDir.trimmed().isEmpty()) {
+        QMessageBox::warning(this, "重置失败", "无法定位本地存储目录。");
+        return;
+    }
+
+    bool success = true;
+    QStringList failedTargets;
+    const QStringList directories = {"access-delta", "access-snapshots", "logs"};
+    for (const QString &name : directories) {
+        QDir dir(QDir(appDataDir).filePath(name));
+        if (dir.exists() && !dir.removeRecursively()) {
+            success = false;
+            failedTargets.append(dir.absolutePath());
+        }
+    }
+
+    const QString databasePath = LocalDatabase::databasePath();
+    const QStringList databaseFiles = {databasePath, databasePath + "-wal", databasePath + "-shm"};
+    for (const QString &path : databaseFiles) {
+        if (QFileInfo::exists(path) && !QFile::remove(path)) {
+            success = false;
+            failedTargets.append(path);
+        }
+    }
+
+    QString dbError;
+    if (!database_.open(&dbError)) {
+        QMessageBox::warning(this, "重置失败", "本地数据库重新初始化失败：" + dbError);
+        return;
+    }
+    uploadManager_.startRetryTimer();
+    if (logEdit_ != nullptr) {
+        logEdit_->clear();
+    }
+    notifiedTaskResults_.clear();
+    refreshUploadTable();
+    updateStatusCards();
+
+    if (!success) {
+        appendLog("local storage reset partially failed: " + failedTargets.join("; "));
+        QMessageBox::warning(this, "重置未完全完成", "以下本地文件未能删除：\n" + failedTargets.join("\n"));
+        return;
+    }
+
+    appendLog("local storage reset completed: " + appDataDir);
+    QMessageBox::information(this, "重置完成", "本地存储文件和数据库已清理，接入配置已保留。");
 }
 
 void MainWindow::exportDiagnostics() {

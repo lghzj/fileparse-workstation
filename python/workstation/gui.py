@@ -592,7 +592,7 @@ class WorkstationMainWindow:
         layout.setSpacing(4)
         self.device_table = self.qt["QTableWidget"](0, 7)
         self.device_table.setHorizontalHeaderLabels(
-            ["设备 ID", "设备编码", "设备名称", "监听目录", "文件类型", "稳定秒数", "启用"]
+            ["设备 ID", "设备编码", "设备名称", "监听路径", "文件类型", "稳定秒数", "启用"]
         )
         self._configure_table(self.device_table)
         self.device_table.setMinimumHeight(110)
@@ -644,7 +644,7 @@ class WorkstationMainWindow:
         for key, label, editable in [
             ("mac", "MAC", False),
             ("hostname", "主机名", False),
-            ("items", "监听目录数", False),
+            ("items", "监听路径数", False),
         ]:
             if editable:
                 widget_value = self.qt["QLineEdit"]()
@@ -721,7 +721,7 @@ class WorkstationMainWindow:
             ("deviceId", "设备 ID", ""),
             ("deviceCode", "设备编码", ""),
             ("deviceName", "设备名称", ""),
-            ("watchPath", "监听目录", ""),
+            ("watchPath", "监听路径", ""),
         ]:
             field = self._build_test_line_edit()
             field.setText(default)
@@ -1956,7 +1956,7 @@ class WorkstationMainWindow:
         labels = {
             "config": "配置文件",
             "token": "注册状态",
-            "watchPath": "监听目录",
+            "watchPath": "监听路径",
             "api": "平台连接",
             "stateDb": "状态库",
             "logDir": "日志目录",
@@ -1972,8 +1972,8 @@ class WorkstationMainWindow:
                 "failed": "工作站尚未注册",
             },
             "watchPath": {
-                "ok": "监听目录可访问",
-                "failed": "监听目录不可访问",
+                "ok": "监听路径可访问",
+                "failed": "监听路径不可访问",
             },
             "api": {
                 "ok": "平台连接正常",

@@ -14,12 +14,20 @@ LocalDatabase::LocalDatabase(const QString &connectionName)
           : connectionName) {}
 
 LocalDatabase::~LocalDatabase() {
+    close();
+}
+
+void LocalDatabase::close() {
     const QString name = db_.connectionName();
     if (!name.isEmpty()) {
         db_.close();
         db_ = QSqlDatabase();
         QSqlDatabase::removeDatabase(name);
     }
+}
+
+QString LocalDatabase::databasePath() {
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/workstation.db";
 }
 
 bool LocalDatabase::open(QString *errorMessage) {
@@ -33,7 +41,7 @@ bool LocalDatabase::open(QString *errorMessage) {
     }
 
     db_ = QSqlDatabase::addDatabase("QSQLITE", connectionName_);
-    db_.setDatabaseName(dir + "/workstation.db");
+    db_.setDatabaseName(databasePath());
     if (!db_.open()) {
         *errorMessage = db_.lastError().text();
         return false;
@@ -390,6 +398,15 @@ bool LocalDatabase::markTaskResult(const QJsonObject &payload, QString *errorMes
             *errorMessage = failedQuery.lastError().text();
             return false;
         }
+
+        QSqlQuery cursorQuery(db_);
+        cursorQuery.prepare("UPDATE access_table_cursors SET pending_cursor_value=NULL, pending_data_no=NULL, status='idle', updated_at=CURRENT_TIMESTAMP "
+                            "WHERE pending_data_no=?");
+        cursorQuery.addBindValue(dataNo);
+        if (!cursorQuery.exec()) {
+            *errorMessage = cursorQuery.lastError().text();
+            return false;
+        }
     }
     return true;
 }
@@ -407,6 +424,10 @@ int LocalDatabase::recoverInterruptedUploads(QString *errorMessage) {
 
 QVector<StoredUpload> LocalDatabase::retryableUploads(int limit, QString *errorMessage) {
     return queryUploads("WHERE status='upload_failed'", "ORDER BY updated_at ASC, id ASC", limit, errorMessage);
+}
+
+QVector<StoredUpload> LocalDatabase::pendingParseUploads(int limit, QString *errorMessage) {
+    return queryUploads("WHERE status='uploaded' AND data_no IS NOT NULL AND data_no != ''", "ORDER BY updated_at ASC, id ASC", limit, errorMessage);
 }
 
 QVector<StoredUpload> LocalDatabase::recentUploads(int limit, QString *errorMessage) {

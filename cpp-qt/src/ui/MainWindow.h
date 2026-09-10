@@ -67,6 +67,7 @@ private:
     void refreshUploadTable();
     void retrySelectedUpload();
     void clearFailedUploads();
+    void resetLocalStorage();
     void exportDiagnostics();
     void openLogDirectory();
     void quitApplication();
@@ -104,6 +105,7 @@ private:
     QPushButton *refreshUploadsButton_ = nullptr;
     QPushButton *retrySelectedButton_ = nullptr;
     QPushButton *clearFailedButton_ = nullptr;
+    QPushButton *resetLocalStorageButton_ = nullptr;
     QPushButton *exportDiagnosticsButton_ = nullptr;
     QPushButton *openLogDirectoryButton_ = nullptr;
     QPushButton *primaryActionButton_ = nullptr;

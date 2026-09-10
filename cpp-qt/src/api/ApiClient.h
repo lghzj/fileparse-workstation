@@ -2,11 +2,13 @@
 
 #include <QDateTime>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QMetaType>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 struct WorkstationSettings {
     QString baseUrl;
@@ -38,12 +40,14 @@ public:
     void registerWorkstation();
     void pullConfig();
     void uploadFile(const UploadRequest &request);
+    void queryDataStatuses(const QStringList &dataNos);
 
 signals:
     void registerSucceeded(const QJsonObject &payload);
     void configPulled(const QJsonObject &payload);
     void uploadSucceeded(const UploadRequest &request, const QJsonObject &payload);
     void uploadFailed(const UploadRequest &request, const QString &message);
+    void dataStatusesReceived(const QJsonArray &statuses);
     void requestFailed(const QString &operation, const QString &message);
 
 private:

@@ -32,8 +32,10 @@ private:
     };
 
     void scanOnce();
+    void baselineExistingFiles();
     void inspectFile(const DeviceConfig &device, const QString &path);
     QStringList collectFiles(const DeviceConfig &device, const QDir &dir) const;
+    static QString emissionKey(const DeviceConfig &device, const QFileInfo &fileInfo);
     static bool matchesWatchFilePattern(const QString &fileName, const QString &watchFilePattern);
     static bool supportedFileType(const QString &fileName, const QString &fileType);
     static bool temporaryFile(const QString &fileName);

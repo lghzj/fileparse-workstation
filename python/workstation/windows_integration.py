@@ -74,7 +74,7 @@ def doctor(config_path: Path, state_db: Path, log_file: Path | None = None, *, c
         checks.append(_ok("token", "configured") if config.workstation_token else _fail("token", "missing"))
         for item in config.items:
             watch_path = Path(item.get("watchPath") or "")
-            if watch_path.exists() and watch_path.is_dir():
+            if watch_path.exists() and (watch_path.is_dir() or watch_path.is_file()):
                 readable = os.access(watch_path, os.R_OK)
                 checks.append(_ok("watchPath", str(watch_path)) if readable else _fail("watchPath", f"not readable: {watch_path}"))
             else:

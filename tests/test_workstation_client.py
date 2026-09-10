@@ -580,6 +580,43 @@ def test_scanner_filters_file_type(tmp_path: Path) -> None:
     assert scanner._is_supported_file(tmp_path / "A001.csv", "csv") is True
     assert scanner._is_supported_file(tmp_path / "A001.xlsx", "csv") is False
     assert scanner._is_supported_file(tmp_path / "A001.xlsx", "excel") is True
+    assert scanner._is_supported_file(tmp_path / "A001.accdb", "access") is True
+
+
+def test_scanner_filters_watch_file_pattern(tmp_path: Path) -> None:
+    (tmp_path / "工位01.accdb").write_text("one", encoding="utf-8")
+    (tmp_path / "工位02.accdb").write_text("two", encoding="utf-8")
+    (tmp_path / "note.csv").write_text("csv", encoding="utf-8")
+    scanner = DirectoryScanner(
+        WorkstationConfig(api_base_url="http://127.0.0.1:8080", mac="00:11:22:33:44:55"),
+        api_client=None,
+        state_store=None,
+    )
+
+    matched = scanner._iter_item_files(
+        {"watchPath": str(tmp_path), "fileType": "access", "watchFilePattern": "工位01*.accdb"}
+    )
+    all_access = scanner._iter_item_files({"watchPath": str(tmp_path), "fileType": "access"})
+
+    assert [path.name for path in matched] == ["工位01.accdb"]
+    assert [path.name for path in all_access] == ["工位01.accdb", "工位02.accdb"]
+
+
+def test_scanner_accepts_specific_file_watch_path(tmp_path: Path) -> None:
+    target = tmp_path / "工位01.accdb"
+    target.write_text("one", encoding="utf-8")
+    (tmp_path / "工位02.accdb").write_text("two", encoding="utf-8")
+    scanner = DirectoryScanner(
+        WorkstationConfig(api_base_url="http://127.0.0.1:8080", mac="00:11:22:33:44:55"),
+        api_client=None,
+        state_store=None,
+    )
+
+    matched = scanner._iter_item_files({"watchPath": str(target), "fileType": "access"})
+    rejected = scanner._iter_item_files({"watchPath": str(target), "fileType": "csv"})
+
+    assert matched == [target]
+    assert rejected == []
 
 
 def test_scanner_iter_watch_files_respects_recursive_and_max_depth(tmp_path: Path) -> None:

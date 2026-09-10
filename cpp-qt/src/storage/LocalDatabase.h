@@ -31,6 +31,8 @@ public:
     ~LocalDatabase();
 
     bool open(QString *errorMessage);
+    void close();
+    static QString databasePath();
     bool recordUpload(const UploadRequest &request, const QString &status, QString *errorMessage);
     bool recordAccessConverting(const UploadRequest &request, QString *errorMessage);
     bool recordAccessDeltaUpload(const UploadRequest &request, const QString &status, QString *errorMessage);
@@ -44,6 +46,7 @@ public:
     bool markAccessBatchUploaded(const QString &deltaPath, const QString &dataNo, QString *errorMessage);
     int recoverInterruptedUploads(QString *errorMessage);
     QVector<StoredUpload> retryableUploads(int limit, QString *errorMessage);
+    QVector<StoredUpload> pendingParseUploads(int limit, QString *errorMessage);
     QVector<StoredUpload> recentUploads(int limit, QString *errorMessage);
     bool uploadByDataNo(const QString &dataNo, StoredUpload *upload, QString *errorMessage);
     int clearFailedUploads(QString *errorMessage);

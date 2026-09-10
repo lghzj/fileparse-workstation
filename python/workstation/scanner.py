@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import hashlib
 import json
 import logging
@@ -111,8 +112,13 @@ class DirectoryScanner:
 
     def _iter_item_files(self, item: dict) -> list[Path]:
         watch_path = Path(item["watchPath"])
-        if not watch_path.exists() or not watch_path.is_dir():
+        if not watch_path.exists():
             logger.warning("watch path unavailable watch_path=%s", watch_path)
+            return []
+        if watch_path.is_file():
+            return [watch_path] if self._matches_item_file(watch_path, item) else []
+        if not watch_path.is_dir():
+            logger.warning("watch path is not a file or directory watch_path=%s", watch_path)
             return []
         files: list[Path] = []
         for file_path in self._iter_watch_files(
@@ -120,14 +126,18 @@ class DirectoryScanner:
             recursive=bool(item.get("recursive")),
             max_depth=int(item.get("maxDepth") or 0),
         ):
-            if not file_path.is_file():
-                continue
-            if self._is_temporary_file(file_path):
-                continue
-            if not self._is_supported_file(file_path, str(item["fileType"])):
-                continue
-            files.append(file_path)
+            if self._matches_item_file(file_path, item):
+                files.append(file_path)
         return files
+
+    def _matches_item_file(self, file_path: Path, item: dict) -> bool:
+        if not file_path.is_file():
+            return False
+        if self._is_temporary_file(file_path):
+            return False
+        if not self._matches_watch_file_pattern(file_path.name, str(item.get("watchFilePattern") or "")):
+            return False
+        return self._is_supported_file(file_path, str(item["fileType"]))
 
     def _iter_watch_files(self, watch_path: Path, *, recursive: bool = False, max_depth: int = 0) -> list[Path]:
         if not recursive:
@@ -153,8 +163,20 @@ class DirectoryScanner:
             "ppt": {"ppt", "pptx"},
             "pdf": {"pdf"},
             "txt": {"txt"},
+            "access": {"mdb", "accdb"},
         }
         return suffix in allowed.get(file_type.lower(), set())
+
+    def _matches_watch_file_pattern(self, file_name: str, watch_file_pattern: str) -> bool:
+        normalized = watch_file_pattern.strip()
+        if not normalized:
+            return True
+        for pattern in [item.strip() for item in normalized.replace(",", ";").split(";")]:
+            if not pattern or "/" in pattern or "\\" in pattern:
+                continue
+            if fnmatch.fnmatchcase(file_name.lower(), pattern.lower()):
+                return True
+        return False
 
     def _is_temporary_file(self, file_path: Path) -> bool:
         name = file_path.name.lower()
@@ -184,13 +206,14 @@ class DirectoryScanner:
             if not item.get("enabled"):
                 continue
             watch_path = Path(item["watchPath"])
-            if not watch_path.exists() or not watch_path.is_dir():
+            if not watch_path.exists():
                 continue
-            path_key = str(watch_path.resolve())
+            observer_path = watch_path if watch_path.is_dir() else watch_path.parent
+            path_key = str(observer_path.resolve())
             if path_key in seen_paths:
                 continue
             seen_paths.add(path_key)
-            watch_paths.append((watch_path, bool(item.get("recursive"))))
+            watch_paths.append((observer_path, bool(item.get("recursive")) and watch_path.is_dir()))
 
         if not watch_paths:
             return

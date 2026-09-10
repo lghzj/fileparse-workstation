@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QHttpMultiPart>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
@@ -127,6 +128,50 @@ void ApiClient::uploadFile(const UploadRequest &upload) {
             return;
         }
         emit uploadSucceeded(upload, payload);
+    });
+}
+
+void ApiClient::queryDataStatuses(const QStringList &dataNos) {
+    if (dataNos.isEmpty()) {
+        return;
+    }
+
+    QUrl url = apiUrl("/api/fileparse/data/status");
+    QUrlQuery query;
+    query.addQueryItem("dataNos", dataNos.join(','));
+    url.setQuery(query);
+
+    QNetworkRequest request(url);
+    applyAuth(&request);
+
+    auto *reply = manager_.get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed("dataStatus", reply->errorString());
+            return;
+        }
+
+        QString errorMessage;
+        const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
+        if (!document.isObject()) {
+            emit requestFailed("dataStatus", "server returned non-json response");
+            return;
+        }
+        const QJsonObject root = document.object();
+        const int code = root.value("code").toInt(0);
+        if (root.contains("code") && code != 0) {
+            errorMessage = root.value("message").toString("server returned error");
+        }
+        if (!errorMessage.isEmpty()) {
+            emit requestFailed("dataStatus", errorMessage);
+            return;
+        }
+        if (!root.value("data").isArray()) {
+            emit requestFailed("dataStatus", "server returned invalid data status response");
+            return;
+        }
+        emit dataStatusesReceived(root.value("data").toArray());
     });
 }
 
