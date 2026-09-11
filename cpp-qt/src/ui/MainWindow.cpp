@@ -1230,6 +1230,19 @@ void MainWindow::showTaskResultNotice(const QJsonObject &payload) {
             5000
         );
     }
+
+    auto *notice = new QMessageBox(
+        success ? QMessageBox::Information : QMessageBox::Warning,
+        title,
+        message,
+        QMessageBox::Ok,
+        nullptr
+    );
+    notice->setAttribute(Qt::WA_DeleteOnClose);
+    notice->setModal(false);
+    notice->show();
+    notice->raise();
+    notice->activateWindow();
 }
 
 void MainWindow::refreshUploadTable() {
