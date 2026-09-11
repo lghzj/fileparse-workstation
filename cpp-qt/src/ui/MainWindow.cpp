@@ -28,6 +28,7 @@
 #include <QMetaObject>
 #include <QHeaderView>
 #include <QScrollArea>
+#include <QScreen>
 #include <QSizePolicy>
 #include <QStandardPaths>
 #include <QStyle>
@@ -1231,18 +1232,36 @@ void MainWindow::showTaskResultNotice(const QJsonObject &payload) {
         );
     }
 
-    auto *notice = new QMessageBox(
-        success ? QMessageBox::Information : QMessageBox::Warning,
-        title,
-        message,
-        QMessageBox::Ok,
-        nullptr
-    );
+    auto *notice = new QWidget(nullptr, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
     notice->setAttribute(Qt::WA_DeleteOnClose);
-    notice->setModal(false);
+    notice->setFixedWidth(360);
+    notice->setStyleSheet(QString(
+        "QWidget { background: white; border: 1px solid %1; border-radius: 6px; }"
+        "QLabel { border: none; background: transparent; color: #111827; }"
+    ).arg(success ? "#22c55e" : "#ef4444"));
+
+    auto *layout = new QVBoxLayout(notice);
+    layout->setContentsMargins(14, 12, 14, 12);
+    layout->setSpacing(6);
+
+    auto *titleLabel = new QLabel(title, notice);
+    titleLabel->setStyleSheet("font-weight: 700; font-size: 13px;");
+    auto *messageLabel = new QLabel(message, notice);
+    messageLabel->setWordWrap(true);
+    messageLabel->setStyleSheet("font-size: 12px; color: #374151;");
+    layout->addWidget(titleLabel);
+    layout->addWidget(messageLabel);
+
+    notice->adjustSize();
+    QScreen *screen = this->screen();
+    if (screen == nullptr) {
+        screen = QApplication::primaryScreen();
+    }
+    const QRect available = screen != nullptr ? screen->availableGeometry() : QRect(0, 0, 1024, 768);
+    notice->move(available.right() - notice->width() - 24, available.bottom() - notice->height() - 48);
     notice->show();
     notice->raise();
-    notice->activateWindow();
+    QTimer::singleShot(5000, notice, &QWidget::close);
 }
 
 void MainWindow::refreshUploadTable() {
