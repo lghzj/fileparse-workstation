@@ -61,8 +61,8 @@ bool LocalDatabase::open(QString *errorMessage) {
                     "data_no TEXT,"
                     "retry_count INTEGER NOT NULL DEFAULT 0,"
                     "last_error_message TEXT,"
-                    "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
-                    "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                    "created_at TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),"
+                    "updated_at TEXT NOT NULL DEFAULT (datetime('now','+8 hours'))"
                     ")")) {
         *errorMessage = query.lastError().text();
         return false;
@@ -84,7 +84,7 @@ bool LocalDatabase::open(QString *errorMessage) {
                     "table_name TEXT NOT NULL,"
                     "schema_hash TEXT NOT NULL,"
                     "columns_json TEXT NOT NULL,"
-                    "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    "updated_at TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),"
                     "UNIQUE(device_id, access_file_path, table_name)"
                     ")")) {
         *errorMessage = query.lastError().text();
@@ -100,7 +100,7 @@ bool LocalDatabase::open(QString *errorMessage) {
                     "pending_cursor_value TEXT,"
                     "pending_data_no TEXT,"
                     "status TEXT NOT NULL DEFAULT 'idle',"
-                    "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    "updated_at TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),"
                     "UNIQUE(device_id, access_file_path, table_name, monitor_column)"
                     ")")) {
         *errorMessage = query.lastError().text();
@@ -117,8 +117,8 @@ bool LocalDatabase::open(QString *errorMessage) {
                     "cursor_to TEXT NOT NULL,"
                     "data_no TEXT,"
                     "status TEXT NOT NULL DEFAULT 'pending_upload',"
-                    "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
-                    "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    "created_at TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),"
+                    "updated_at TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),"
                     "UNIQUE(delta_path, table_name, monitor_column)"
                     ")")) {
         *errorMessage = query.lastError().text();
@@ -131,7 +131,7 @@ bool LocalDatabase::recordUpload(const UploadRequest &request, const QString &st
     if (status != "converting") {
         QSqlQuery updateConverting(db_);
         updateConverting.prepare("UPDATE upload_records SET file_name=?, upload_path=?, file_size=?, file_mtime=?, file_hash=COALESCE(NULLIF(?, ''), file_hash), "
-                                 "status=?, data_no=NULL, last_error_message=NULL, updated_at=CURRENT_TIMESTAMP "
+                                 "status=?, data_no=NULL, last_error_message=NULL, updated_at=datetime('now','+8 hours') "
                                  "WHERE device_id=? AND local_path=? AND status='converting'");
         updateConverting.addBindValue(request.fileName);
         updateConverting.addBindValue(request.uploadPath.trimmed().isEmpty() ? request.localPath : request.uploadPath);
@@ -153,10 +153,10 @@ bool LocalDatabase::recordUpload(const UploadRequest &request, const QString &st
     QSqlQuery query(db_);
     query.prepare("INSERT INTO upload_records "
                   "(device_id, local_path, file_name, upload_path, file_size, file_mtime, file_hash, status, updated_at) "
-                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','+8 hours')) "
                   "ON CONFLICT(device_id, local_path, file_size, file_mtime) "
                   "DO UPDATE SET status=excluded.status, file_name=excluded.file_name, upload_path=excluded.upload_path, file_hash=excluded.file_hash, "
-                  "last_error_message=NULL, updated_at=CURRENT_TIMESTAMP");
+                  "last_error_message=NULL, updated_at=datetime('now','+8 hours')");
     bindRequest(&query, request);
     query.addBindValue(status);
     if (!query.exec()) {
@@ -173,7 +173,7 @@ bool LocalDatabase::recordAccessConverting(const UploadRequest &request, QString
 bool LocalDatabase::recordAccessDeltaUpload(const UploadRequest &request, const QString &status, QString *errorMessage) {
     QSqlQuery update(db_);
     update.prepare("UPDATE upload_records SET file_name=?, upload_path=?, file_size=?, file_mtime=?, file_hash=?, "
-                   "status=?, data_no=NULL, last_error_message=NULL, updated_at=CURRENT_TIMESTAMP "
+                   "status=?, data_no=NULL, last_error_message=NULL, updated_at=datetime('now','+8 hours') "
                    "WHERE device_id=? AND local_path=? AND status='converting'");
     update.addBindValue(request.fileName);
     update.addBindValue(request.uploadPath);
@@ -195,7 +195,7 @@ bool LocalDatabase::recordAccessDeltaUpload(const UploadRequest &request, const 
 
 bool LocalDatabase::markUploaded(const UploadRequest &request, const QString &dataNo, QString *errorMessage) {
     QSqlQuery query(db_);
-    query.prepare("UPDATE upload_records SET status='uploaded', data_no=?, last_error_message=NULL, updated_at=CURRENT_TIMESTAMP "
+    query.prepare("UPDATE upload_records SET status='uploaded', data_no=?, last_error_message=NULL, updated_at=datetime('now','+8 hours') "
                   "WHERE device_id=? AND local_path=? AND file_size=? AND file_mtime=?");
     query.addBindValue(dataNo);
     query.addBindValue(request.deviceId);
@@ -214,7 +214,7 @@ bool LocalDatabase::markUploaded(const UploadRequest &request, const QString &da
 bool LocalDatabase::markUploadFailed(const UploadRequest &request, const QString &message, QString *errorMessage) {
     QSqlQuery updateConverting(db_);
     updateConverting.prepare("UPDATE upload_records SET file_name=?, upload_path=?, file_size=?, file_mtime=?, file_hash=COALESCE(NULLIF(?, ''), file_hash), "
-                             "status='upload_failed', retry_count=retry_count + 1, last_error_message=?, updated_at=CURRENT_TIMESTAMP "
+                             "status='upload_failed', retry_count=retry_count + 1, last_error_message=?, updated_at=datetime('now','+8 hours') "
                              "WHERE device_id=? AND local_path=? AND status='converting'");
     updateConverting.addBindValue(request.fileName);
     updateConverting.addBindValue(request.uploadPath.trimmed().isEmpty() ? request.localPath : request.uploadPath);
@@ -235,11 +235,11 @@ bool LocalDatabase::markUploadFailed(const UploadRequest &request, const QString
     QSqlQuery query(db_);
     query.prepare("INSERT INTO upload_records "
                   "(device_id, local_path, file_name, upload_path, file_size, file_mtime, file_hash, status, retry_count, last_error_message, updated_at) "
-                  "VALUES (?, ?, ?, ?, ?, ?, ?, 'upload_failed', 1, ?, CURRENT_TIMESTAMP) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, 'upload_failed', 1, ?, datetime('now','+8 hours')) "
                   "ON CONFLICT(device_id, local_path, file_size, file_mtime) "
                   "DO UPDATE SET status='upload_failed', retry_count=retry_count + 1, "
                   "file_name=excluded.file_name, upload_path=excluded.upload_path, "
-                  "last_error_message=excluded.last_error_message, updated_at=CURRENT_TIMESTAMP");
+                  "last_error_message=excluded.last_error_message, updated_at=datetime('now','+8 hours')");
     bindRequest(&query, request);
     query.addBindValue(message.left(2000));
     if (!query.exec()) {
@@ -252,7 +252,7 @@ bool LocalDatabase::markUploadFailed(const UploadRequest &request, const QString
 bool LocalDatabase::markConversionFailed(const UploadRequest &request, const QString &message, QString *errorMessage) {
     QSqlQuery updateConverting(db_);
     updateConverting.prepare("UPDATE upload_records SET file_name=?, upload_path=?, file_size=?, file_mtime=?, file_hash=COALESCE(NULLIF(?, ''), file_hash), "
-                             "status='conversion_failed', last_error_message=?, updated_at=CURRENT_TIMESTAMP "
+                             "status='conversion_failed', last_error_message=?, updated_at=datetime('now','+8 hours') "
                              "WHERE device_id=? AND local_path=? AND status='converting'");
     updateConverting.addBindValue(request.fileName);
     updateConverting.addBindValue(request.uploadPath.trimmed().isEmpty() ? request.localPath : request.uploadPath);
@@ -273,11 +273,11 @@ bool LocalDatabase::markConversionFailed(const UploadRequest &request, const QSt
     QSqlQuery query(db_);
     query.prepare("INSERT INTO upload_records "
                   "(device_id, local_path, file_name, upload_path, file_size, file_mtime, file_hash, status, retry_count, last_error_message, updated_at) "
-                  "VALUES (?, ?, ?, ?, ?, ?, ?, 'conversion_failed', 0, ?, CURRENT_TIMESTAMP) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, 'conversion_failed', 0, ?, datetime('now','+8 hours')) "
                   "ON CONFLICT(device_id, local_path, file_size, file_mtime) "
                   "DO UPDATE SET status='conversion_failed', file_name=excluded.file_name, upload_path=excluded.upload_path, "
                   "file_hash=COALESCE(NULLIF(excluded.file_hash, ''), upload_records.file_hash), "
-                  "last_error_message=excluded.last_error_message, updated_at=CURRENT_TIMESTAMP");
+                  "last_error_message=excluded.last_error_message, updated_at=datetime('now','+8 hours')");
     query.addBindValue(request.deviceId);
     query.addBindValue(request.localPath);
     query.addBindValue(request.fileName);
@@ -319,9 +319,9 @@ bool LocalDatabase::saveAccessSchemaCache(int deviceId, const QString &accessFil
     QSqlQuery query(db_);
     query.prepare("INSERT INTO access_schema_cache "
                   "(device_id, access_file_path, table_name, schema_hash, columns_json, updated_at) "
-                  "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
+                  "VALUES (?, ?, ?, ?, ?, datetime('now','+8 hours')) "
                   "ON CONFLICT(device_id, access_file_path, table_name) "
-                  "DO UPDATE SET schema_hash=excluded.schema_hash, columns_json=excluded.columns_json, updated_at=CURRENT_TIMESTAMP");
+                  "DO UPDATE SET schema_hash=excluded.schema_hash, columns_json=excluded.columns_json, updated_at=datetime('now','+8 hours')");
     query.addBindValue(deviceId);
     query.addBindValue(accessFilePath);
     query.addBindValue(tableName);
@@ -338,10 +338,10 @@ bool LocalDatabase::setAccessCursor(int deviceId, const QString &accessFilePath,
     QSqlQuery query(db_);
     query.prepare("INSERT INTO access_table_cursors "
                   "(device_id, access_file_path, table_name, monitor_column, last_cursor_value, pending_cursor_value, pending_data_no, status, updated_at) "
-                  "VALUES (?, ?, ?, ?, ?, NULL, NULL, 'idle', CURRENT_TIMESTAMP) "
+                  "VALUES (?, ?, ?, ?, ?, NULL, NULL, 'idle', datetime('now','+8 hours')) "
                   "ON CONFLICT(device_id, access_file_path, table_name, monitor_column) "
                   "DO UPDATE SET last_cursor_value=excluded.last_cursor_value, pending_cursor_value=NULL, pending_data_no=NULL, "
-                  "status='idle', updated_at=CURRENT_TIMESTAMP");
+                  "status='idle', updated_at=datetime('now','+8 hours')");
     query.addBindValue(deviceId);
     query.addBindValue(accessFilePath);
     query.addBindValue(tableName);
@@ -358,8 +358,8 @@ bool LocalDatabase::markAccessBatchPending(const QString &deltaPath, int deviceI
     QSqlQuery query(db_);
     query.prepare("INSERT INTO access_capture_batches "
                   "(delta_path, device_id, access_file_path, table_name, monitor_column, cursor_from, cursor_to, status, updated_at) "
-                  "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_upload', CURRENT_TIMESTAMP) "
-                  "ON CONFLICT(delta_path, table_name, monitor_column) DO UPDATE SET cursor_to=excluded.cursor_to, status='pending_upload', updated_at=CURRENT_TIMESTAMP");
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_upload', datetime('now','+8 hours')) "
+                  "ON CONFLICT(delta_path, table_name, monitor_column) DO UPDATE SET cursor_to=excluded.cursor_to, status='pending_upload', updated_at=datetime('now','+8 hours')");
     query.addBindValue(deltaPath);
     query.addBindValue(deviceId);
     query.addBindValue(accessFilePath);
@@ -374,9 +374,9 @@ bool LocalDatabase::markAccessBatchPending(const QString &deltaPath, int deviceI
     QSqlQuery cursorQuery(db_);
     cursorQuery.prepare("INSERT INTO access_table_cursors "
                         "(device_id, access_file_path, table_name, monitor_column, last_cursor_value, pending_cursor_value, pending_data_no, status, updated_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, NULL, 'pending_upload', CURRENT_TIMESTAMP) "
+                        "VALUES (?, ?, ?, ?, ?, ?, NULL, 'pending_upload', datetime('now','+8 hours')) "
                         "ON CONFLICT(device_id, access_file_path, table_name, monitor_column) "
-                        "DO UPDATE SET pending_cursor_value=excluded.pending_cursor_value, status='pending_upload', updated_at=CURRENT_TIMESTAMP");
+                        "DO UPDATE SET pending_cursor_value=excluded.pending_cursor_value, status='pending_upload', updated_at=datetime('now','+8 hours')");
     cursorQuery.addBindValue(deviceId);
     cursorQuery.addBindValue(accessFilePath);
     cursorQuery.addBindValue(tableName);
@@ -392,7 +392,7 @@ bool LocalDatabase::markAccessBatchPending(const QString &deltaPath, int deviceI
 
 bool LocalDatabase::markAccessBatchUploaded(const QString &deltaPath, const QString &dataNo, QString *errorMessage) {
     QSqlQuery query(db_);
-    query.prepare("UPDATE access_capture_batches SET data_no=?, status='uploaded', updated_at=CURRENT_TIMESTAMP "
+    query.prepare("UPDATE access_capture_batches SET data_no=?, status='uploaded', updated_at=datetime('now','+8 hours') "
                   "WHERE delta_path=? AND status='pending_upload'");
     query.addBindValue(dataNo);
     query.addBindValue(deltaPath);
@@ -408,7 +408,7 @@ bool LocalDatabase::markAccessBatchUploaded(const QString &deltaPath, const QStr
                         "AND b.access_file_path=access_table_cursors.access_file_path "
                         "AND b.table_name=access_table_cursors.table_name "
                         "AND b.monitor_column=access_table_cursors.monitor_column), "
-                        "pending_data_no=?, status='uploaded', updated_at=CURRENT_TIMESTAMP "
+                        "pending_data_no=?, status='uploaded', updated_at=datetime('now','+8 hours') "
                         "WHERE EXISTS (SELECT 1 FROM access_capture_batches b WHERE b.delta_path=? "
                         "AND b.device_id=access_table_cursors.device_id "
                         "AND b.access_file_path=access_table_cursors.access_file_path "
@@ -434,7 +434,7 @@ bool LocalDatabase::markTaskResult(const QJsonObject &payload, QString *errorMes
     const QString error = payload.value("errorMessage").toString();
 
     QSqlQuery query(db_);
-    query.prepare("UPDATE upload_records SET status=?, last_error_message=?, updated_at=CURRENT_TIMESTAMP WHERE data_no=?");
+    query.prepare("UPDATE upload_records SET status=?, last_error_message=?, updated_at=datetime('now','+8 hours') WHERE data_no=?");
     query.addBindValue(localStatus);
     query.addBindValue(error);
     query.addBindValue(dataNo);
@@ -455,10 +455,10 @@ bool LocalDatabase::markTaskResult(const QJsonObject &payload, QString *errorMes
             QSqlQuery cursorQuery(db_);
             cursorQuery.prepare("INSERT INTO access_table_cursors "
                                 "(device_id, access_file_path, table_name, monitor_column, last_cursor_value, pending_cursor_value, pending_data_no, status, updated_at) "
-                                "VALUES (?, ?, ?, ?, ?, NULL, NULL, 'idle', CURRENT_TIMESTAMP) "
+                                "VALUES (?, ?, ?, ?, ?, NULL, NULL, 'idle', datetime('now','+8 hours')) "
                                 "ON CONFLICT(device_id, access_file_path, table_name, monitor_column) "
                                 "DO UPDATE SET last_cursor_value=excluded.last_cursor_value, pending_cursor_value=NULL, "
-                                "pending_data_no=NULL, status='idle', updated_at=CURRENT_TIMESTAMP");
+                                "pending_data_no=NULL, status='idle', updated_at=datetime('now','+8 hours')");
             cursorQuery.addBindValue(batchQuery.value(0));
             cursorQuery.addBindValue(batchQuery.value(1));
             cursorQuery.addBindValue(batchQuery.value(2));
@@ -470,7 +470,7 @@ bool LocalDatabase::markTaskResult(const QJsonObject &payload, QString *errorMes
             }
         }
         QSqlQuery doneQuery(db_);
-        doneQuery.prepare("UPDATE access_capture_batches SET status='parse_success', updated_at=CURRENT_TIMESTAMP WHERE data_no=?");
+        doneQuery.prepare("UPDATE access_capture_batches SET status='parse_success', updated_at=datetime('now','+8 hours') WHERE data_no=?");
         doneQuery.addBindValue(dataNo);
         if (!doneQuery.exec()) {
             *errorMessage = doneQuery.lastError().text();
@@ -478,7 +478,7 @@ bool LocalDatabase::markTaskResult(const QJsonObject &payload, QString *errorMes
         }
     } else if (localStatus == "parse_failed") {
         QSqlQuery failedQuery(db_);
-        failedQuery.prepare("UPDATE access_capture_batches SET status='parse_failed', updated_at=CURRENT_TIMESTAMP WHERE data_no=?");
+        failedQuery.prepare("UPDATE access_capture_batches SET status='parse_failed', updated_at=datetime('now','+8 hours') WHERE data_no=?");
         failedQuery.addBindValue(dataNo);
         if (!failedQuery.exec()) {
             *errorMessage = failedQuery.lastError().text();
@@ -486,7 +486,7 @@ bool LocalDatabase::markTaskResult(const QJsonObject &payload, QString *errorMes
         }
 
         QSqlQuery cursorQuery(db_);
-        cursorQuery.prepare("UPDATE access_table_cursors SET pending_cursor_value=NULL, pending_data_no=NULL, status='idle', updated_at=CURRENT_TIMESTAMP "
+        cursorQuery.prepare("UPDATE access_table_cursors SET pending_cursor_value=NULL, pending_data_no=NULL, status='idle', updated_at=datetime('now','+8 hours') "
                             "WHERE pending_data_no=?");
         cursorQuery.addBindValue(dataNo);
         if (!cursorQuery.exec()) {
@@ -500,7 +500,7 @@ bool LocalDatabase::markTaskResult(const QJsonObject &payload, QString *errorMes
 int LocalDatabase::recoverInterruptedUploads(QString *errorMessage) {
     QSqlQuery query(db_);
     if (!query.exec("UPDATE upload_records SET status='upload_failed', retry_count=retry_count + 1, "
-                    "last_error_message='upload interrupted before workstation restart', updated_at=CURRENT_TIMESTAMP "
+                    "last_error_message='upload interrupted before workstation restart', updated_at=datetime('now','+8 hours') "
                     "WHERE status='uploading'")) {
         *errorMessage = query.lastError().text();
         return -1;
